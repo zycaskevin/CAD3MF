@@ -1,0 +1,85 @@
+{
+  "schema_version": "0.1",
+  "project_id": "parametric-magnet-module",
+  "revision_id": "r2",
+  "parent_revision_id": "r1",
+  "units": "mm",
+  "parameters": {
+    "width": 60.0,
+    "depth": 40.0,
+    "height": 8.0,
+    "magnet_diameter": 8.0,
+    "magnet_depth": 3.2,
+    "male_x": 30.0,
+    "male_z": -2.5,
+    "male_height": 5.0,
+    "female_x": -30.0,
+    "female_z": -4.0,
+    "female_height": 8.0
+  },
+  "manufacturing": {
+    "process": "fdm",
+    "material": "PETG"
+  },
+  "bodies": [
+    {
+      "id": "main_body",
+      "features": [
+        {
+          "type": "box",
+          "id": "base",
+          "operation": "new",
+          "width": "$width",
+          "depth": "$depth",
+          "height": "$height",
+          "centered": true
+        },
+        {
+          "type": "extrude",
+          "id": "right_male_dovetail",
+          "operation": "add",
+          "plane": "XY",
+          "profile": [
+            [-0.5, -4.0],
+            [4.0, -5.5],
+            [4.0, 5.5],
+            [-0.5, 4.0]
+          ],
+          "distance": "$male_height",
+          "transform": {
+            "x": "$male_x",
+            "z": "$male_z"
+          }
+        },
+        {
+          "type": "extrude",
+          "id": "left_female_dovetail",
+          "operation": "cut",
+          "plane": "XY",
+          "profile": [
+            [-0.5, -4.25],
+            [4.5, -5.75],
+            [4.5, 5.75],
+            [-0.5, 4.25]
+          ],
+          "distance": "$female_height",
+          "transform": {
+            "x": "$female_x",
+            "z": "$female_z"
+          }
+        },
+        {
+          "type": "hole",
+          "id": "magnet_pockets",
+          "diameter": "$magnet_diameter",
+          "depth": "$magnet_depth",
+          "points": [
+            [-18.0, 0.0],
+            [18.0, 0.0]
+          ],
+          "face": ">Z"
+        }
+      ]
+    }
+  ]
+}
