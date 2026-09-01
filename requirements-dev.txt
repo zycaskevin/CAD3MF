@@ -1,0 +1,4 @@
+cadquery==2.8.0
+pydantic>=2.11,<3
+pytest>=8.4,<9
+ruff>=0.12,<1
