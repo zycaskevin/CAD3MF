@@ -1,5 +1,5 @@
-import { createServer, type IncomingMessage } from "node:http";
 import { readFileSync } from "node:fs";
+import { createServer, type IncomingMessage } from "node:http";
 import { extname } from "node:path";
 
 import { toNodeHandler } from "@modelcontextprotocol/node";
@@ -50,8 +50,15 @@ function requestAllowed(headers: { host?: string; origin?: string }): boolean {
   return true;
 }
 
-function hasMethod(request: IncomingMessage): request is IncomingMessage & { method: string } {
-  return typeof request.method === "string" && request.method.length > 0;
+function isMcpRequest(
+  request: IncomingMessage,
+): request is IncomingMessage & { method: string; url: string } {
+  return (
+    typeof request.method === "string" &&
+    request.method.length > 0 &&
+    typeof request.url === "string" &&
+    request.url.length > 0
+  );
 }
 
 function artifactContentType(kind: ArtifactKind, path: string): string {
@@ -98,9 +105,9 @@ const httpServer = createServer((req, res) => {
       res.end();
       return;
     }
-    if (!hasMethod(req)) {
+    if (!isMcpRequest(req)) {
       res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
-      res.end("Missing HTTP method\n");
+      res.end("Missing HTTP method or URL\n");
       return;
     }
     void nodeMcpHandler(req, res);
