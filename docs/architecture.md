@@ -1,35 +1,57 @@
 # CAD3MF architecture
 
-## M0 execution path
+## M0 end-to-end path
 
 ```text
+Natural-language user intent
+          |
+          v
+ChatGPT / Agent host
+  (intent -> CAD-IR)
+          |
+          v
+MCP tools + CAD-IR schema
+          |
+          v
+Project / Revision Runtime
+       SQLite
+          |
+          v
 CAD-IR JSON
-   |
-   v
+          |
+          v
 Pydantic schema validation
-   |
-   v
+          |
+          v
 Safe parameter resolver
-   |
-   v
+          |
+          v
 CadQuery adapter
-   |
-   v
+          |
+          v
 OpenCascade solid
-   |--------------------|
-   v                    v
-Geometry validation   Export
-                        |-- STEP
-                        |-- STL
-                        |-- 3MF
-                        `-- GLB/TJS preview
+   |-----------------------|
+   v                       v
+Geometry validation      Export
+                           |-- STEP
+                           |-- STL
+                           |-- 3MF
+                           `-- GLB/TJS preview
+          |
+          v
+Controlled artifact HTTP gateway
+          |
+          v
+MCP App React + Three.js viewer
 ```
+
+Natural-language interpretation belongs to the host model. CAD3MF does not add a second ad-hoc NLP parser. The host uses the canonical CAD-IR schema; CAD3MF validates and deterministically executes the resulting design contract.
 
 ## Ownership boundaries
 
 ### `packages/cad-ir`
 
-Canonical, backend-neutral design contract. It must not import CadQuery, OpenCascade, FreeCAD, slicers, or UI code.
+Canonical, backend-neutral design contract. It must not import CadQuery, OpenCascade, FreeCAD, slicers, MCP, or UI code.
 
 ### `packages/cad-compiler`
 
@@ -41,11 +63,21 @@ Translates supported CAD-IR features into CadQuery operations. Backend-specific 
 
 ### `services/cad-worker`
 
-Owns orchestration of compile -> validate -> export and revision helpers. It does not accept arbitrary Python source.
+Owns compile → validate → export and revision helpers. It does not accept arbitrary Python source.
 
 ### `services/mcp-server`
 
-Post-M0 Agent-facing API. Its public surface remains seven high-level tools:
+Owns the Agent/project runtime boundary:
+
+- MCP v2 stdio development transport
+- Streamable HTTP `/mcp` transport for App deployment
+- six high-level M0 tools
+- CAD-IR schema resource
+- ChatGPT viewer resource
+- SQLite project/revision persistence
+- controlled artifact HTTP gateway
+
+M0 tools:
 
 - `create_design`
 - `modify_design`
@@ -53,23 +85,70 @@ Post-M0 Agent-facing API. Its public surface remains seven high-level tools:
 - `render_design`
 - `validate_design`
 - `export_design`
-- `prepare_print`
 
-`prepare_print` is reserved until the Bambu/slicer milestone.
+`prepare_print` is reserved until the Bambu/slicer milestone and is not exposed as a placeholder tool.
+
+The service may know local artifact paths internally, but the HTTP/App public contract returns controlled artifact URLs instead of filesystem paths.
 
 ### `apps/chatgpt-plugin`
 
-Post-M0 Apps SDK + React/Three.js viewer. It consumes project/revision/validation/artifact contracts; it does not own geometry generation.
+Owns the MCP App presentation layer:
+
+- React 19
+- Three.js GLB viewer
+- MCP Apps host bridge
+- parameter editing controls
+- validation/revision display
+- STEP/STL/3MF export actions
+
+The widget never owns geometry generation. It keeps only draft UI input; any accepted parameter change must go through `modify_design`, create a server revision, and return a new authoritative snapshot.
+
+## Revision authority
+
+The canonical editable asset is CAD-IR plus persisted revision state, not the GLB/STL mesh.
+
+```text
+r1 CAD-IR
+  -> compile
+  -> artifacts
+
+set_parameter
+  -> r2 CAD-IR (parent r1)
+  -> compile
+  -> new artifacts
+```
+
+Preview and export files are derived assets. They can be regenerated from the authoritative revision.
+
+## HTTP security boundary
+
+The HTTP service enforces:
+
+- allowed Host / Origin controls around the MCP endpoint
+- path-safe project identifiers
+- artifact lookup through persisted revision metadata
+- no URL-segment-to-filesystem concatenation
+- no raw server path in public App tool results
+- immutable revision-scoped artifact URLs
+
+The CAD execution boundary separately rejects arbitrary Python and arbitrary CAD expressions.
 
 ## M0 deliberate limitations
 
 - one exported body per design
 - millimeters only
 - FDM manufacturing metadata only
+- `modify_design` supports `set_parameter` only
 - no assembly constraints
 - no arbitrary formulas
 - no FreeCAD/OpenSCAD backends
-- no printability heuristics beyond geometry validity
+- no image-to-CAD
+- no printability heuristics beyond current geometry validation
 - no slicing or printer profiles
+- no Bambu project generation
 
-These are product boundaries, not hidden implementation gaps. Each expands in later milestones behind stable contracts.
+These are explicit product boundaries. Each later capability should expand behind the existing CAD-IR / revision / MCP contracts rather than bypass them.
+
+## M0 completion boundary
+
+The deterministic backend/runtime and ChatGPT App contract are proven in CI. A final user-facing visual acceptance still requires deploying `/mcp` and artifact routes behind a reachable HTTPS origin and connecting that endpoint in ChatGPT Developer Mode.
