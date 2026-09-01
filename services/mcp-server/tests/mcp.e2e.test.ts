@@ -49,6 +49,24 @@ function structured(result: {
   return result.structuredContent as Record<string, unknown>;
 }
 
+function withForbiddenExpression(fixture: Record<string, unknown>): Record<string, unknown> {
+  const unsafe = structuredClone(fixture);
+  const bodies = unsafe.bodies;
+  if (!Array.isArray(bodies)) throw new Error("fixture has no bodies array");
+  const firstBody = bodies[0];
+  if (typeof firstBody !== "object" || firstBody === null) {
+    throw new Error("fixture has no first body");
+  }
+  const features = (firstBody as Record<string, unknown>).features;
+  if (!Array.isArray(features)) throw new Error("fixture has no feature array");
+  const firstFeature = features[0];
+  if (typeof firstFeature !== "object" || firstFeature === null) {
+    throw new Error("fixture has no first feature");
+  }
+  (firstFeature as Record<string, unknown>).width = "$width / 2";
+  return unsafe;
+}
+
 test("M0 MCP golden path persists revisions across server restarts", async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-mcp-"));
   const fixture = JSON.parse(
@@ -78,6 +96,41 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     assert(schemaContent && "text" in schemaContent && typeof schemaContent.text === "string");
     const schema = JSON.parse(schemaContent.text) as Record<string, unknown>;
     assert.equal(schema.type, "object");
+
+    const traversalAttempt = await client.callTool({
+      name: "create_design",
+      arguments: {
+        project_id: "../escape",
+        design_spec: "path traversal must be rejected",
+        units: "mm",
+        manufacturing_process: "fdm",
+        material: "PETG",
+        cad_ir: fixture,
+      },
+    });
+    assert.equal(traversalAttempt.isError, true);
+
+    const expressionAttempt = await client.callTool({
+      name: "create_design",
+      arguments: {
+        project_id: "unsafe-expression",
+        design_spec: "arbitrary expressions must be rejected",
+        units: "mm",
+        manufacturing_process: "fdm",
+        material: "PETG",
+        cad_ir: withForbiddenExpression(fixture),
+      },
+    });
+    assert.equal(expressionAttempt.isError, true);
+    const expressionError = expressionAttempt.content.find((item) => item.type === "text");
+    assert(expressionError && expressionError.type === "text");
+    assert.match(expressionError.text, /expressions are forbidden/);
+
+    const rejectedProject = await client.callTool({
+      name: "inspect_design",
+      arguments: { project_id: "unsafe-expression" },
+    });
+    assert.equal(rejectedProject.isError, true);
 
     const created = structured(
       await client.callTool({
