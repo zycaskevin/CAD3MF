@@ -35,10 +35,14 @@ async function connect(dataDir: string): Promise<Client> {
     stderr: "pipe",
   });
   await client.connect(transport);
+  assert.equal(client.getProtocolEra(), "modern");
   return client;
 }
 
-function structured(result: { structuredContent?: unknown; isError?: boolean }): Record<string, unknown> {
+function structured(result: {
+  structuredContent?: unknown;
+  isError?: boolean | undefined;
+}): Record<string, unknown> {
   assert.notEqual(result.isError, true);
   assert.equal(typeof result.structuredContent, "object");
   assert.notEqual(result.structuredContent, null);
