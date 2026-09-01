@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  m0-golden-path:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: >-
+        ${{ github.workspace }}/packages/cad-ir/src:
+        ${{ github.workspace }}/packages/cad-compiler/src:
+        ${{ github.workspace }}/services/cad-worker/src:
+        ${{ github.workspace }}/adapters/cadquery/src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q
+
+      - name: Build golden artifacts
+        run: |
+          python -m cad3mf_worker.cli build tests/golden-models/magnet_module.v1.json --out dist/magnet-v1
+          python -m cad3mf_worker.cli build tests/golden-models/magnet_module.v2.json --out dist/magnet-v2
+
+      - name: Upload golden artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad3mf-m0-golden
+          path: dist/
+          if-no-files-found: error
