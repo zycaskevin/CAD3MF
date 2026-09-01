@@ -185,7 +185,7 @@ export function createCadDeskServer(
         material: z.string().min(1).default("PETG"),
         cad_ir: z.record(z.string(), z.unknown()),
       }),
-      outputSchema: snapshotSchema,
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -230,7 +230,7 @@ export function createCadDeskServer(
           value: z.number().finite(),
         }),
       }),
-      outputSchema: snapshotSchema,
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -286,7 +286,7 @@ export function createCadDeskServer(
       title: "Render CAD design",
       description: "Use this when the user wants to view an existing CAD revision in the interactive viewer.",
       inputSchema: z.object(revisionSelector),
-      outputSchema: snapshotSchema,
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -338,7 +338,7 @@ export function createCadDeskServer(
         ...revisionSelector,
         format: z.enum(["step", "stl", "3mf"]),
       }),
-      outputSchema: publicBaseUrl ? exportSchema : undefined,
+      ...(publicBaseUrl ? { outputSchema: exportSchema } : {}),
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
