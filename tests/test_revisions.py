@@ -3,7 +3,6 @@ from pathlib import Path
 from cad3mf_worker.build import load_design
 from cad3mf_worker.revisions import revise_parameter
 
-
 GOLDEN_DIR = Path(__file__).parent / "golden-models"
 
 

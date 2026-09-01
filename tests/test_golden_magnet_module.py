@@ -2,9 +2,7 @@ from pathlib import Path
 from zipfile import is_zipfile
 
 import pytest
-
 from cad3mf_worker.build import build_file
-
 
 GOLDEN_DIR = Path(__file__).parent / "golden-models"
 

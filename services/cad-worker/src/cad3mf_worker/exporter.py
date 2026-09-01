@@ -30,11 +30,14 @@ def export_design(shape: cq.Workplane, output_dir: Path) -> dict[str, str]:
         assembly.export(str(preview_path))
         if not preview_path.exists() or preview_path.stat().st_size == 0:
             raise ExportError("GLB exporter returned an empty artifact")
-    except Exception:
+    except Exception as glb_error:
         preview_path.unlink(missing_ok=True)
         preview_path = output_dir / "preview.tjs"
-        shape.export(str(preview_path))
+        try:
+            shape.export(str(preview_path))
+        except Exception as tjs_error:
+            raise ExportError("both GLB and TJS preview export failed") from tjs_error
         if not preview_path.exists() or preview_path.stat().st_size == 0:
-            raise ExportError("both GLB and TJS preview export failed")
+            raise ExportError("both GLB and TJS preview export failed") from glb_error
 
     return {key: str(path) for key, path in artifacts.items()} | {"preview": str(preview_path)}

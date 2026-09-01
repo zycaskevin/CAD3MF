@@ -64,7 +64,7 @@ tests/
 
 ## Development
 
-Requires Python 3.11+.
+Requires Python 3.11+. CAD3MF pins CadQuery 2.8.0 and CasADi 3.7.2 for reproducible ARM64/Linux development. Minimal headless Linux images may also need the native `libGL` and `libX11` runtimes required by OpenCascade.
 
 ```bash
 python -m pip install -r requirements-dev.txt

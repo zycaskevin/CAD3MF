@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-Scalar = Union[float, int, str]
+Scalar = float | int | str
 Point2D = tuple[Scalar, Scalar]
 
 
@@ -60,7 +59,7 @@ class HoleFeature(StrictModel):
 
 
 Feature = Annotated[
-    Union[BoxFeature, CylinderFeature, ExtrudeFeature, HoleFeature],
+    BoxFeature | CylinderFeature | ExtrudeFeature | HoleFeature,
     Field(discriminator="type"),
 ]
 
@@ -70,7 +69,7 @@ class Body(StrictModel):
     features: list[Feature] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_feature_tree(self) -> "Body":
+    def validate_feature_tree(self) -> Body:
         ids = [feature.id for feature in self.features]
         if len(ids) != len(set(ids)):
             raise ValueError(f"body {self.id!r} contains duplicate feature ids")
@@ -99,7 +98,7 @@ class DesignDocument(StrictModel):
     bodies: list[Body] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_document(self) -> "DesignDocument":
+    def validate_document(self) -> DesignDocument:
         body_ids = [body.id for body in self.bodies]
         if len(body_ids) != len(set(body_ids)):
             raise ValueError("body ids must be unique")

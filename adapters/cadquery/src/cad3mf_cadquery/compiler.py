@@ -3,16 +3,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import cadquery as cq
-
 from cad3mf_compiler import resolve_point, resolve_scalar
-from cad3mf_ir import BoxFeature, CylinderFeature, DesignDocument, ExtrudeFeature, HoleFeature, Transform
+from cad3mf_ir import (
+    BoxFeature,
+    CylinderFeature,
+    DesignDocument,
+    ExtrudeFeature,
+    HoleFeature,
+    Transform,
+)
 
 
 class CadQueryCompileError(RuntimeError):
     pass
 
 
-def _apply_transform(shape: cq.Workplane, transform: Transform, parameters: Mapping[str, float]) -> cq.Workplane:
+def _apply_transform(
+    shape: cq.Workplane, transform: Transform, parameters: Mapping[str, float]
+) -> cq.Workplane:
     rx = resolve_scalar(transform.rotate_x, parameters)
     ry = resolve_scalar(transform.rotate_y, parameters)
     rz = resolve_scalar(transform.rotate_z, parameters)
@@ -101,8 +109,12 @@ def compile_design(design: DesignDocument) -> dict[str, cq.Workplane]:
                 diameter = resolve_scalar(feature.diameter, parameters)
                 depth = resolve_scalar(feature.depth, parameters)
                 if diameter <= 0 or depth <= 0:
-                    raise CadQueryCompileError(f"hole {feature.id!r} requires positive diameter/depth")
-                current = current.faces(feature.face).workplane().pushPoints(points).hole(diameter, depth)
+                    raise CadQueryCompileError(
+                        f"hole {feature.id!r} requires positive diameter/depth"
+                    )
+                current = (
+                    current.faces(feature.face).workplane().pushPoints(points).hole(diameter, depth)
+                )
                 continue
 
             primitive = _compile_feature(feature, parameters)

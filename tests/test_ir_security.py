@@ -1,10 +1,8 @@
 from pathlib import Path
 
 import pytest
-
 from cad3mf_compiler import ParameterResolutionError, resolve_scalar
 from cad3mf_ir import DesignDocument
-
 
 GOLDEN = Path(__file__).parent / "golden-models" / "magnet_module.v1.json"
 
