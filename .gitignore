@@ -4,6 +4,8 @@ __pycache__/
 .ruff_cache/
 .venv/
 .tools/
+.cad3mf-data/
+node_modules/
 dist/
 build/
 *.egg-info/
