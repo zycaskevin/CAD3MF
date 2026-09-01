@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from cad3mf_ir import DesignDocument
+
 from .build import build_file, load_design
 from .revisions import revise_parameter
 
@@ -35,6 +37,8 @@ def _build_parser() -> argparse.ArgumentParser:
     revise.add_argument("--revision", required=True)
     revise.add_argument("--out", type=Path, required=True)
 
+    subparsers.add_parser("schema", help="print the canonical CAD-IR 0.1 JSON Schema")
+
     return parser
 
 
@@ -53,6 +57,10 @@ def main() -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(revised.model_dump_json(indent=2), encoding="utf-8")
         print(args.out)
+        return 0
+
+    if args.command == "schema":
+        print(json.dumps(DesignDocument.model_json_schema(), indent=2, sort_keys=True))
         return 0
 
     raise AssertionError(f"unhandled command {args.command!r}")
