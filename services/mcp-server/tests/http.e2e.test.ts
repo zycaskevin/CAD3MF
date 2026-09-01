@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,6 +40,17 @@ async function waitForHealth(baseUrl: string, child: ChildProcess): Promise<void
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   throw new Error("timed out waiting for CAD3MF HTTP server");
+}
+
+async function requestStatus(url: string, headers: Record<string, string>): Promise<number> {
+  return await new Promise<number>((resolveStatus, reject) => {
+    const request = httpRequest(url, { headers }, (response) => {
+      response.resume();
+      response.once("end", () => resolveStatus(response.statusCode ?? 0));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 function childEnv(dataDir: string, port: number, baseUrl: string): Record<string, string> {
@@ -84,6 +96,11 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD artifacts", async () 
   let client: Client | null = null;
   try {
     await waitForHealth(baseUrl, child);
+    const rejectedMcp = await fetch(`${baseUrl}/mcp`, {
+      headers: { origin: "https://unlisted-sandbox.oaiusercontent.com" },
+    });
+    assert.equal(rejectedMcp.status, 403);
+
     client = new Client(
       { name: "cad3mf-http-e2e", version: "0.1.0" },
       { versionNegotiation: { mode: "auto" } },
@@ -120,11 +137,20 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD artifacts", async () 
     const viewerData = created.viewer as Record<string, unknown>;
     assert.equal(viewerData.preview_url, `${baseUrl}/artifacts/http-magnet-module/r1/preview`);
 
-    const previewResponse = await fetch(String(viewerData.preview_url));
+    const previewResponse = await fetch(String(viewerData.preview_url), {
+      headers: { origin: "null" },
+    });
     assert.equal(previewResponse.status, 200);
+    assert.equal(previewResponse.headers.get("access-control-allow-origin"), "*");
     assert.match(previewResponse.headers.get("content-type") ?? "", /^model\/gltf-binary/);
     const previewBytes = new Uint8Array(await previewResponse.arrayBuffer());
     assert.equal(new TextDecoder().decode(previewBytes.slice(0, 4)), "glTF");
+
+    const rejectedArtifactHost = await requestStatus(String(viewerData.preview_url), {
+      host: "attacker.invalid",
+      origin: "null",
+    });
+    assert.equal(rejectedArtifactHost, 403);
 
     const modified = structured(
       await client.callTool({
@@ -149,8 +175,11 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD artifacts", async () 
     );
     assert.equal(exported.artifact_url, `${baseUrl}/artifacts/http-magnet-module/r2/3mf`);
     assert.equal("artifact_path" in exported, false);
-    const threeMf = await fetch(String(exported.artifact_url));
+    const threeMf = await fetch(String(exported.artifact_url), {
+      headers: { origin: "https://unlisted-sandbox.oaiusercontent.com" },
+    });
     assert.equal(threeMf.status, 200);
+    assert.equal(threeMf.headers.get("access-control-allow-origin"), "*");
     assert.match(threeMf.headers.get("content-type") ?? "", /^model\/3mf/);
     const threeMfBytes = new Uint8Array(await threeMf.arrayBuffer());
     assert.equal(new TextDecoder().decode(threeMfBytes.slice(0, 2)), "PK");

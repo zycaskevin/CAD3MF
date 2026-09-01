@@ -43,9 +43,13 @@ const allowedOrigins = new Set([
   ...commaList(process.env.CAD3MF_ALLOWED_ORIGINS),
 ]);
 
+function requestHostAllowed(host: string | undefined): boolean {
+  const requestHost = host?.toLowerCase();
+  return Boolean(requestHost && allowedHosts.has(requestHost));
+}
+
 function requestAllowed(headers: { host?: string; origin?: string }): boolean {
-  const requestHost = headers.host?.toLowerCase();
-  if (!requestHost || !allowedHosts.has(requestHost)) return false;
+  if (!requestHostAllowed(headers.host)) return false;
   if (headers.origin && !allowedOrigins.has(headers.origin)) return false;
   return true;
 }
@@ -76,6 +80,8 @@ function isArtifactKind(value: string): value is ArtifactKind {
 
 const httpServer = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", publicBaseUrl);
+  const isPublicArtifactRequest =
+    req.method === "GET" && requestUrl.pathname.startsWith("/artifacts/");
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
@@ -83,12 +89,14 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
-  if (
-    !requestAllowed({
-      ...(req.headers.host === undefined ? {} : { host: req.headers.host }),
-      ...(req.headers.origin === undefined ? {} : { origin: req.headers.origin }),
-    })
-  ) {
+  const requestHeaders = {
+    ...(req.headers.host === undefined ? {} : { host: req.headers.host }),
+    ...(req.headers.origin === undefined ? {} : { origin: req.headers.origin }),
+  };
+  const requestIsAllowed = isPublicArtifactRequest
+    ? requestHostAllowed(requestHeaders.host)
+    : requestAllowed(requestHeaders);
+  if (!requestIsAllowed) {
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
     res.end("Forbidden\n");
     return;
@@ -114,7 +122,7 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
-  if (req.method === "GET" && requestUrl.pathname.startsWith("/artifacts/")) {
+  if (isPublicArtifactRequest) {
     const parts = requestUrl.pathname.split("/").filter(Boolean);
     if (parts.length !== 4) {
       res.writeHead(404).end();
