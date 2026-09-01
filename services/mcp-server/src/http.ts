@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 
@@ -50,8 +50,14 @@ function requestAllowed(headers: { host?: string; origin?: string }): boolean {
   return true;
 }
 
+function hasMethod(request: IncomingMessage): request is IncomingMessage & { method: string } {
+  return typeof request.method === "string" && request.method.length > 0;
+}
+
 function artifactContentType(kind: ArtifactKind, path: string): string {
-  if (kind === "preview") return extname(path).toLowerCase() === ".glb" ? "model/gltf-binary" : "application/json";
+  if (kind === "preview") {
+    return extname(path).toLowerCase() === ".glb" ? "model/gltf-binary" : "application/json";
+  }
   if (kind === "step") return "model/step";
   if (kind === "stl") return "model/stl";
   return "model/3mf";
@@ -70,10 +76,12 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
-  if (!requestAllowed({
-    ...(req.headers.host === undefined ? {} : { host: req.headers.host }),
-    ...(req.headers.origin === undefined ? {} : { origin: req.headers.origin }),
-  })) {
+  if (
+    !requestAllowed({
+      ...(req.headers.host === undefined ? {} : { host: req.headers.host }),
+      ...(req.headers.origin === undefined ? {} : { origin: req.headers.origin }),
+    })
+  ) {
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
     res.end("Forbidden\n");
     return;
@@ -88,6 +96,11 @@ const httpServer = createServer((req, res) => {
           "content-type,mcp-protocol-version,mcp-session-id,last-event-id",
       });
       res.end();
+      return;
+    }
+    if (!hasMethod(req)) {
+      res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Missing HTTP method\n");
       return;
     }
     void nodeMcpHandler(req, res);
@@ -140,7 +153,9 @@ const httpServer = createServer((req, res) => {
 httpServer.listen(port, host, () => {
   const address = httpServer.address();
   const boundPort = typeof address === "object" && address ? address.port : port;
-  console.error(`CAD3MF HTTP server listening on ${host}:${boundPort}; MCP endpoint ${publicBaseUrl}/mcp`);
+  console.error(
+    `CAD3MF HTTP server listening on ${host}:${boundPort}; MCP endpoint ${publicBaseUrl}/mcp`,
+  );
 });
 
 async function shutdown(): Promise<void> {
