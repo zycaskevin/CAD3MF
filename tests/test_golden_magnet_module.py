@@ -1,5 +1,5 @@
 from pathlib import Path
-from zipfile import is_zipfile
+from zipfile import ZipFile, is_zipfile
 
 import pytest
 from cad3mf_worker.build import build_file
@@ -14,7 +14,14 @@ def _assert_artifacts(manifest: dict[str, object]) -> None:
         path = Path(str(artifacts[name]))
         assert path.exists(), name
         assert path.stat().st_size > 0, name
-    assert is_zipfile(Path(str(artifacts["3mf"])))
+    three_mf = Path(str(artifacts["3mf"]))
+    assert is_zipfile(three_mf)
+    with ZipFile(three_mf) as package:
+        assert {
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "3D/3dmodel.model",
+        }.issubset(package.namelist())
 
 
 def test_golden_magnet_module_builds_both_revisions(tmp_path: Path) -> None:
