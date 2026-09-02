@@ -47,6 +47,8 @@ export interface MeshProviderOutput {
     selfIntersectionsDetected: boolean | null;
     notes: string[];
   };
+  /** Canonical turnaround view names actually consumed by this provider. */
+  consumedViews: string[];
 }
 
 export interface MeshProvider {
