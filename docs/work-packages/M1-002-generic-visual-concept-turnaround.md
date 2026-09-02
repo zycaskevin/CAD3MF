@@ -56,6 +56,27 @@ Product-specific logic may alter prompts or review criteria, but must not create
 
 Both contracts are closed JSON Schema documents with digest-bound image artifacts and provider provenance.
 
+## ChatGPT image input
+
+`analyze_visual_input` supports the ChatGPT Plugin file-parameter contract through top-level `source_files` and `_meta["openai/fileParams"]`.
+
+The model/widget supplies file references containing the documented `download_url` and `file_id` fields. CAD3MF, not the model, performs ingestion:
+
+```text
+ChatGPT file reference
+    -> HTTPS download boundary
+    -> SSRF / private-network rejection
+    -> bounded download
+    -> PNG/JPEG/WebP magic-byte validation
+    -> SHA-256
+    -> immutable source artifact
+    -> Design Intent evidence reference
+```
+
+`download_url` is transient transport metadata and is never canonical state. Source image bytes and server filesystem paths are also excluded from canonical JSON documents; providers receive bytes only through the internal adapter context.
+
+The advanced `source_assets` input remains available for reuse of already-ingested CAD3MF artifacts and deterministic tests.
+
 ## MCP workflow
 
 M1-002 exposes:
@@ -89,10 +110,28 @@ Runtime validation additionally rejects duplicate camera roles even though JSON 
 
 ## Artifact policy
 
-- Derived visual artifacts are immutable and SHA-256 bound.
+- Source and derived visual artifacts are immutable and SHA-256 bound once ingested.
+- Provider calls after a runtime restart reload and re-hash persisted image bytes instead of depending on expired external download URLs.
+- Derived concept images are available as normalized inputs to a future turnaround provider.
 - Public image delivery resolves artifact IDs through the visual store; URL paths never become filesystem paths.
+- Public visual delivery recomputes the stored SHA-256 before sending bytes.
 - Provider output is untrusted data.
 - Production adapters must normalize to PNG/JPEG/WebP before canonical registration.
+
+## Network security
+
+M1-002 file ingestion treats file download URLs as untrusted transport input even when ChatGPT normally supplies them.
+
+The application boundary requires:
+
+- HTTPS only;
+- no URL credentials;
+- bounded redirect count with every redirect revalidated;
+- rejection of loopback, private, link-local, multicast, and other non-public IP ranges;
+- bounded payload size;
+- content-type determination from image magic bytes, not filename or header alone.
+
+Production deployment should additionally enforce outbound network/egress policy because application-level DNS checks cannot by themselves provide a complete defense against every DNS-rebinding scenario.
 
 ## Explicit non-goals
 
@@ -105,9 +144,11 @@ M1-002 does not implement:
 - Bambu slicing
 - physical validation
 
+The deterministic provider also does not constitute production visual understanding, concept generation, or turnaround quality.
+
 ## Acceptance criteria
 
-M1-002 is complete when:
+M1-002 is complete at the infrastructure/orchestration layer when:
 
 1. both new JSON Schemas validate and reject unknown fields;
 2. one workflow handles figurine and modular-tank golden cases;
@@ -115,7 +156,9 @@ M1-002 is complete when:
 4. required decisions block design lock until answered or explicitly waived;
 5. turnaround generation requires a locked concept;
 6. turnaround coverage and duplicate-view validation are enforced;
-7. workflow state survives MCP runtime restart;
-8. HTTP artifact delivery does not expose raw filesystem paths;
-9. all M0 and M1-001 regression tests remain green;
-10. CI deterministic provider is clearly identified as non-production and no claim of generative image quality is made.
+7. workflow state and ingested source bytes survive MCP runtime restart;
+8. ChatGPT file parameter metadata/schema matches the documented file contract;
+9. source-file ingestion rejects obvious SSRF/private-network targets and unsupported image formats;
+10. HTTP artifact delivery does not expose raw filesystem paths and verifies digest before serving;
+11. all M0 and M1-001 regression tests remain green;
+12. CI deterministic provider is clearly identified as non-production and no claim of generative image quality is made.
