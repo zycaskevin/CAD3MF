@@ -27,7 +27,7 @@ export interface VisualSourceAsset {
   sha256: string;
   mediaType: VisualMediaType;
   role: VisualSourceRole;
-  /** Internal provider input only. Never serialized into canonical Design Intent. */
+  /** Internal provider input only. Never serialized into canonical documents. */
   bytes?: Uint8Array;
 }
 
@@ -143,5 +143,6 @@ export interface ConceptProviderContext extends VisualProviderContext {
 
 export interface TurnaroundProviderContext extends VisualProviderContext {
   visualConcept: Record<string, unknown>;
+  conceptImages: VisualSourceAsset[];
   coveragePolicy: "minimum_four_view" | "full_six_view";
 }
