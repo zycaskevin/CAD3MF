@@ -52,11 +52,12 @@ function extension(mediaType: VisualSourceAsset["mediaType"]): string {
 
 function logicalDocumentArtifact(
   document: Record<string, unknown>,
+  kind: "design_intent" | "visual_concept",
   revisionId: string,
 ): M1ArtifactRef {
   return {
-    artifact_id: `visual_concept:${revisionId}`,
-    kind: "visual_concept",
+    artifact_id: `${kind}:${revisionId}`,
+    kind,
     sha256: jsonDigest(document),
     media_type: "application/json",
     revision_ref: revisionId,
@@ -98,7 +99,7 @@ export class HostVisualConceptAdopter {
       jobKind: "concept_generation",
       stage: "concept",
       inputs: [
-        logicalDocumentArtifact(intent, String(intent.revision_id)),
+        logicalDocumentArtifact(intent, "design_intent", String(intent.revision_id)),
         ...input.conceptImages.map((image) => ({
           artifact_id: image.assetId,
           kind: "host_concept_image",
@@ -107,9 +108,7 @@ export class HostVisualConceptAdopter {
           revision_ref: null,
         })),
       ],
-      toolVersions: [
-        { component: "chatgpt-host-artifact", version: "1", digest: null },
-      ],
+      toolVersions: [{ component: "chatgpt-host-artifact", version: "1", digest: null }],
       now,
     });
     this.#store.saveJob(job);
@@ -168,7 +167,7 @@ export class HostVisualConceptAdopter {
       this.#store.addDocument(projectId, "visual_concept", revisionId, concept, now);
 
       const outputs: M1ArtifactRef[] = [
-        logicalDocumentArtifact(concept, revisionId),
+        logicalDocumentArtifact(concept, "visual_concept", revisionId),
         ...stored.map(({ stored: artifact }) => ({
           artifact_id: artifact.artifactId,
           kind: "concept_image",
