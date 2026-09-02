@@ -29,6 +29,7 @@ def request_fixture() -> dict:
         "quality_tier": "standard",
         "output_format": "ply",
         "texture_policy": "none",
+        "target_dimensions": [{"name": "length", "value": 120, "unit": "mm"}],
         "target_triangle_count": 10000,
         "preserve_semantic_regions": True,
         "notes": [],
@@ -58,6 +59,7 @@ def artifact_fixture() -> dict:
             "self_intersections_detected": False,
             "notes": [],
         },
+        "consumed_views": ["three_quarter_front"],
         "provenance": {
             "provider": "deterministic-mesh-ci",
             "model": "cube-fixture",
