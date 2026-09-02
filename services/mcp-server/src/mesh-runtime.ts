@@ -114,6 +114,13 @@ export class MeshRuntime {
     if (!consistency || consistency.pass !== true) {
       throw new Error("turnaround consistency must pass before mesh generation");
     }
+    const sourceConceptRevisionId = String(turnaround.source_concept_revision_id ?? "");
+    if (!sourceConceptRevisionId) throw new Error("turnaround is missing source concept provenance");
+    const sourceConcept = this.#visualStore.getDocument(projectId, "visual_concept", sourceConceptRevisionId);
+    const sourceIntentRevisionId = String(sourceConcept.source_intent_revision_id ?? "");
+    if (!sourceIntentRevisionId) throw new Error("visual concept is missing source design intent provenance");
+    this.#visualStore.getDocument(projectId, "design_intent", sourceIntentRevisionId);
+
     const viewRecords = turnaround.views;
     if (!Array.isArray(viewRecords) || viewRecords.length < 4) {
       throw new Error("mesh generation requires at least four turnaround views");
@@ -228,7 +235,7 @@ export class MeshRuntime {
         project_id: projectId,
         revision_id: assetRevisionId,
         parent_revision_id: null,
-        source_intent_revision_id: String(turnaround.source_concept_revision_id ?? "unknown"),
+        source_intent_revision_id: sourceIntentRevisionId,
         source_turnaround_revision_id: String(turnaround.revision_id),
         asset_type: assetType(request.assetKind),
         units: "mm",
