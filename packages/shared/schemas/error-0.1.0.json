@@ -30,13 +30,8 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
         "value": {
-          "oneOf": [
-            {"type": "string", "maxLength": 1000},
-            {"type": "number"},
-            {"type": "integer"},
-            {"type": "boolean"},
-            {"type": "null"}
-          ]
+          "type": ["string", "number", "boolean", "null"],
+          "maxLength": 1000
         }
       }
     }
