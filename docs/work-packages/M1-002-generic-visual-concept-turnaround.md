@@ -16,19 +16,25 @@ Reference images + prompt
         v
 Design Intent
         |
-        v
-Visual Concept
-        |
-   user confirmation
-        |
-        v
-Design Lock
-        |
-        v
-Turnaround Set
-        |
-        v
-M1-003 geometry provider boundary
+        +----------------------------+
+        |                            |
+        v                            v
+provider-generated concept     ChatGPT-host concept
+        |                            |
+        +-------------+--------------+
+                      v
+                Visual Concept
+                      |
+               user confirmation
+                      |
+                      v
+                 Design Lock
+                      |
+                      v
+                Turnaround Set
+                      |
+                      v
+          M1-003 geometry provider boundary
 ```
 
 ## Canonical boundary
@@ -77,19 +83,53 @@ ChatGPT file reference
 
 The advanced `source_assets` input remains available for reuse of already-ingested CAD3MF artifacts and deterministic tests.
 
+## Concept creation modes
+
+M1-002 deliberately supports two ways to arrive at the **same** Visual Concept contract.
+
+### Provider-generated mode
+
+`generate_concept` asks the configured VisualProvider to create concept imagery from Design Intent and normalized source evidence.
+
+The deterministic CI provider exercises this path but is not production quality.
+
+### ChatGPT-host adoption mode
+
+`adopt_visual_concept` is used when ChatGPT itself has already generated or edited a concept image in the conversation and the user has selected that concept.
+
+The selected `concept_files` are passed through the same ChatGPT file-parameter contract, ingested, validated, hashed, and stored without regenerating the pixels.
+
+This preserves the desired user experience:
+
+```text
+user reference photo / sketch
+        -> ChatGPT discussion
+        -> ChatGPT concept image
+        -> iterative visual edits
+        -> user selects concept
+        -> adopt_visual_concept
+        -> confirm_design
+        -> immutable design-locked concept
+```
+
+Host-adopted concepts use explicit provenance labels `provider=host-provided` and `model=unattested-host-visual`. CAD3MF does not pretend to know or attest the image-generation model used by the host.
+
+Adoption itself never bypasses the confirmation gate: it creates `needs_confirmation`; `confirm_design` creates the design-locked successor revision.
+
 ## MCP workflow
 
 M1-002 exposes:
 
 - `analyze_visual_input`
 - `generate_concept`
+- `adopt_visual_concept`
 - `confirm_design`
 - `generate_turnaround`
 - `get_visual_job`
 
 The first implementation includes a deterministic provider for CI. It proves orchestration, persistence, revisions, artifact delivery, and security boundaries without claiming generative image quality.
 
-A production image/vision provider must implement the same adapter interface and may be enabled later without changing canonical contracts.
+A production image/vision provider must implement the same adapter interface and may be enabled later without changing canonical contracts. For ChatGPT-host concept generation, no second backend image-generation call is required because the selected host artifact can be adopted directly.
 
 ## Confirmation gate
 
@@ -108,10 +148,13 @@ Two policies are allowed:
 
 Runtime validation additionally rejects duplicate camera roles even though JSON Schema cannot express array-wide uniqueness by object property.
 
+Host-provided turnaround adoption is deliberately not added in this work package until its review/consistency evidence can be represented without fabricating automated confidence scores. Provider-generated turnaround remains the canonical M1-002 path.
+
 ## Artifact policy
 
 - Source and derived visual artifacts are immutable and SHA-256 bound once ingested.
 - Provider calls after a runtime restart reload and re-hash persisted image bytes instead of depending on expired external download URLs.
+- Host-adopted concept images use the same artifact store and become normalized inputs to downstream turnaround providers.
 - Derived concept images are available as normalized inputs to a future turnaround provider.
 - Public image delivery resolves artifact IDs through the visual store; URL paths never become filesystem paths.
 - Public visual delivery recomputes the stored SHA-256 before sending bytes.
@@ -152,13 +195,15 @@ M1-002 is complete at the infrastructure/orchestration layer when:
 
 1. both new JSON Schemas validate and reject unknown fields;
 2. one workflow handles figurine and modular-tank golden cases;
-3. concept generation produces immutable digest-bound image artifacts;
-4. required decisions block design lock until answered or explicitly waived;
-5. turnaround generation requires a locked concept;
-6. turnaround coverage and duplicate-view validation are enforced;
-7. workflow state and ingested source bytes survive MCP runtime restart;
-8. ChatGPT file parameter metadata/schema matches the documented file contract;
-9. source-file ingestion rejects obvious SSRF/private-network targets and unsupported image formats;
-10. HTTP artifact delivery does not expose raw filesystem paths and verifies digest before serving;
-11. all M0 and M1-001 regression tests remain green;
-12. CI deterministic provider is clearly identified as non-production and no claim of generative image quality is made.
+3. provider-generated and host-adopted concepts converge on the same Visual Concept contract;
+4. concept artifacts are immutable and SHA-256-bound;
+5. required decisions block design lock until answered or explicitly waived;
+6. host concept adoption cannot itself bypass `confirm_design`;
+7. turnaround generation requires a locked concept;
+8. turnaround coverage and duplicate-view validation are enforced;
+9. workflow state and ingested source/concept bytes survive MCP runtime restart;
+10. ChatGPT file parameter metadata/schema matches the documented file contract for both source and adopted concept files;
+11. source-file ingestion rejects obvious SSRF/private-network targets and unsupported image formats;
+12. HTTP artifact delivery does not expose raw filesystem paths and verifies digest before serving;
+13. all M0 and M1-001 regression tests remain green;
+14. CI deterministic provider is clearly identified as non-production and no claim of generative image quality is made.
