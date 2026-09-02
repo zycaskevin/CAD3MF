@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
 import type { JsonObject } from "./types.js";
+import { downloadChatGptVisualFile } from "./visual-file-ingest.js";
 import { VisualRuntime } from "./visual-runtime.js";
 import type {
   VisualDimension,
@@ -155,6 +157,13 @@ export function registerVisualM1(
     }),
   );
 
+  const sourceFileSchema = z.object({
+    download_url: z.string().url(),
+    file_id: z.string().min(1).max(512),
+    mime_type: z.string().max(128).optional(),
+    file_name: z.string().max(512).optional(),
+    role: z.enum(SOURCE_ROLES).default("other"),
+  });
   const sourceAssetSchema = z.object({
     asset_id: z.string().min(1).max(128),
     sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
@@ -174,14 +183,19 @@ export function registerVisualM1(
     {
       title: "Analyze visual design input",
       description:
-        "Create canonical Design Intent from visual references and a design prompt. Source images are evidence, not geometry truth.",
+        "Create canonical Design Intent from ChatGPT image files or previously ingested image artifacts plus a design prompt. Source images are evidence, not geometry truth.",
       inputSchema: z.object({
         project_id: z.string().min(1).max(128).optional(),
         product_kind: z.enum(PRODUCT_KINDS),
         design_prompt: z.string().min(1).max(4000),
         style: z.string().max(256).nullable().optional(),
         requested_functions: z.array(z.string().min(1).max(256)).max(64).default([]),
-        source_assets: z.array(sourceAssetSchema).min(1).max(32),
+        source_files: z.array(sourceFileSchema).max(12).default([]),
+        source_assets: z
+          .array(sourceAssetSchema)
+          .max(32)
+          .default([])
+          .describe("Advanced reuse of visual artifacts already ingested by CAD3MF."),
         known_dimensions: z.array(dimensionSchema).max(128).default([]),
       }),
       outputSchema: visualOutputSchema,
@@ -191,6 +205,9 @@ export function registerVisualM1(
         idempotentHint: false,
         openWorldHint: false,
       },
+      _meta: {
+        "openai/fileParams": ["source_files"],
+      },
     },
     async ({
       project_id,
@@ -198,16 +215,45 @@ export function registerVisualM1(
       design_prompt,
       style,
       requested_functions,
+      source_files,
       source_assets,
       known_dimensions,
     }) => {
       try {
-        const sourceAssets: VisualSourceAsset[] = source_assets.map((asset) => ({
-          assetId: asset.asset_id,
-          sha256: asset.sha256,
-          mediaType: asset.media_type,
-          role: asset.role,
-        }));
+        if (source_files.length === 0 && source_assets.length === 0) {
+          throw new Error("at least one source_files or source_assets image is required");
+        }
+        if (source_files.length + source_assets.length > 32) {
+          throw new Error("combined visual source count must not exceed 32 images");
+        }
+
+        const downloadedAssets: VisualSourceAsset[] = [];
+        for (const file of source_files) {
+          const downloaded = await downloadChatGptVisualFile({
+            downloadUrl: file.download_url,
+            fileId: file.file_id,
+            ...(file.mime_type === undefined ? {} : { mimeType: file.mime_type }),
+            ...(file.file_name === undefined ? {} : { fileName: file.file_name }),
+            role: file.role,
+          });
+          downloadedAssets.push({
+            assetId: `source-${randomUUID()}`,
+            sha256: downloaded.sha256,
+            mediaType: downloaded.mediaType,
+            role: downloaded.role,
+            bytes: downloaded.bytes,
+          });
+        }
+
+        const sourceAssets: VisualSourceAsset[] = [
+          ...downloadedAssets,
+          ...source_assets.map((asset) => ({
+            assetId: asset.asset_id,
+            sha256: asset.sha256,
+            mediaType: asset.media_type,
+            role: asset.role,
+          })),
+        ];
         const knownDimensions: VisualDimension[] = known_dimensions.map((dimension) => ({
           name: dimension.name,
           value: dimension.value,
