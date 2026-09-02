@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
+import { HostVisualConceptAdopter } from "../src/visual-adoption.js";
 import {
   downloadChatGptVisualFile,
   isPrivateNetworkAddress,
@@ -182,6 +183,72 @@ test("ingested source and generated concept bytes survive runtime restart for pr
     );
     assert.equal(thirdProvider.sawTurnaroundSourceBytes, true);
     assert.equal(thirdProvider.sawTurnaroundConceptBytes, true);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("host-provided concept can be adopted, explicitly locked, and reused downstream", async () => {
+  const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-host-concept-"));
+  try {
+    const analysisProvider = new ByteAssertingProvider();
+    const initial = new VisualRuntime({ dataDir, provider: analysisProvider });
+    await initial.analyzeVisualInput({
+      projectId: "host-concept-flow",
+      productKind: "vehicle",
+      designPrompt: "Design a futuristic modular tank with a replaceable upper shell.",
+      style: "futuristic_hard_surface",
+      sourceAssets: [
+        {
+          assetId: "tank-reference",
+          sha256: PNG_SHA,
+          mediaType: "image/png",
+          role: "concept",
+          bytes: PNG,
+        },
+      ],
+    });
+
+    const adopter = new HostVisualConceptAdopter({ dataDir });
+    const adopted = adopter.adoptConcept({
+      projectId: "host-concept-flow",
+      brief: "User-selected futuristic modular tank concept generated in the ChatGPT host.",
+      designNotes: ["Preserve the low hull and detachable upper module."],
+      conceptImages: [
+        {
+          assetId: "host-selected-concept",
+          sha256: PNG_SHA,
+          mediaType: "image/png",
+          role: "concept",
+          bytes: PNG,
+        },
+      ],
+    });
+    const concept = adopted.visual_concept as Record<string, unknown>;
+    assert.equal(concept.status, "needs_confirmation");
+    const provenance = concept.provenance as Record<string, unknown>;
+    assert.equal(provenance.provider, "host-provided");
+    assert.equal(provenance.model, "unattested-host-visual");
+    assert.equal(JSON.stringify(concept).includes("bytes"), false);
+
+    const lockRuntime = new VisualRuntime({ dataDir, provider: new ByteAssertingProvider() });
+    const confirmed = lockRuntime.confirmDesign({
+      projectId: "host-concept-flow",
+      conceptRevisionId: String(concept.revision_id),
+      notes: ["Explicitly approved by the user."],
+    });
+    const locked = confirmed.visual_concept as Record<string, unknown>;
+    assert.equal(locked.status, "design_locked");
+
+    const turnaroundProvider = new ByteAssertingProvider();
+    const downstream = new VisualRuntime({ dataDir, provider: turnaroundProvider });
+    await downstream.generateTurnaround(
+      "host-concept-flow",
+      String(locked.revision_id),
+      "full_six_view",
+    );
+    assert.equal(turnaroundProvider.sawTurnaroundSourceBytes, true);
+    assert.equal(turnaroundProvider.sawTurnaroundConceptBytes, true);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
