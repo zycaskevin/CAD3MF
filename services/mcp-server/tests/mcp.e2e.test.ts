@@ -116,7 +116,10 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
         "create_design",
         "export_design",
         "generate_concept",
+        "generate_mesh",
         "generate_turnaround",
+        "get_mesh_asset",
+        "get_mesh_job",
         "get_visual_job",
         "inspect_design",
         "modify_design",
@@ -133,6 +136,13 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     assert(adoptTool);
     assertFileParamTool(adoptTool, "concept_files");
 
+    const generateMeshTool = tools.find((tool) => tool.name === "generate_mesh");
+    assert(generateMeshTool);
+    const meshInput = asObject(generateMeshTool.inputSchema, "generate_mesh has no input schema");
+    const meshProperties = asObject(meshInput.properties, "generate_mesh input has no properties");
+    assert.equal("asset_kind" in meshProperties, true);
+    assert.equal("output_format" in meshProperties, true);
+
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
     assert.equal(
@@ -143,6 +153,16 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
       resources.some((resource) => resource.uri === "caddesk://schema/turnaround-set/0.1.0"),
       true,
     );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/mesh-generation-request/0.1.0"),
+      true,
+    );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/mesh-artifact/0.1.0"),
+      true,
+    );
+    assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/asset-ir/0.1.0"), true);
+
     const schemaResult = await client.readResource({ uri: "caddesk://schema/cad-ir/0.1" });
     const schemaContent = schemaResult.contents[0];
     assert(schemaContent && "text" in schemaContent && typeof schemaContent.text === "string");
@@ -160,6 +180,14 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     );
     const visualSchema = JSON.parse(visualSchemaContent.text) as Record<string, unknown>;
     assert.equal(visualSchema.type, "object");
+
+    const meshSchemaResult = await client.readResource({
+      uri: "caddesk://schema/mesh-artifact/0.1.0",
+    });
+    const meshSchemaContent = meshSchemaResult.contents[0];
+    assert(meshSchemaContent && "text" in meshSchemaContent && typeof meshSchemaContent.text === "string");
+    const meshSchema = JSON.parse(meshSchemaContent.text) as Record<string, unknown>;
+    assert.equal(meshSchema.type, "object");
 
     const traversalAttempt = await client.callTool({
       name: "create_design",
