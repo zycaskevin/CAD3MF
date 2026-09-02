@@ -73,6 +73,30 @@ function asObject(value: unknown, message: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function assertFileParamTool(
+  tool: { name: string; _meta?: unknown; inputSchema: unknown },
+  field: string,
+  extraProperties: string[] = [],
+): void {
+  const meta = asObject(tool._meta, `${tool.name} has no _meta`);
+  assert.deepEqual(meta["openai/fileParams"], [field]);
+  const input = asObject(tool.inputSchema, `${tool.name} has no input schema`);
+  const properties = asObject(input.properties, `${tool.name} input has no properties`);
+  const fileArray = asObject(properties[field], `${field} schema is missing`);
+  const items = asObject(fileArray.items, `${field} item schema is missing`);
+  const itemProperties = asObject(items.properties, `${field} item properties are missing`);
+  assert.deepEqual(Object.keys(itemProperties).sort(), [
+    "download_url",
+    "file_id",
+    "file_name",
+    "mime_type",
+    ...extraProperties,
+  ].sort());
+  const required = items.required;
+  assert(Array.isArray(required));
+  assert.deepEqual([...required].sort(), ["download_url", "file_id"]);
+}
+
 test("M0 MCP golden path persists revisions across server restarts", async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-mcp-"));
   const fixture = JSON.parse(
@@ -86,6 +110,7 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
       [
+        "adopt_visual_concept",
         "analyze_visual_input",
         "confirm_design",
         "create_design",
@@ -102,26 +127,11 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
 
     const analyzeTool = tools.find((tool) => tool.name === "analyze_visual_input");
     assert(analyzeTool);
-    const analyzeMeta = asObject(analyzeTool._meta, "analyze_visual_input has no _meta");
-    assert.deepEqual(analyzeMeta["openai/fileParams"], ["source_files"]);
-    const analyzeInput = asObject(analyzeTool.inputSchema, "analyze_visual_input has no input schema");
-    const analyzeProperties = asObject(analyzeInput.properties, "analyze input has no properties");
-    const sourceFiles = asObject(analyzeProperties.source_files, "source_files schema is missing");
-    const sourceFileItems = asObject(sourceFiles.items, "source_files item schema is missing");
-    const sourceFileProperties = asObject(
-      sourceFileItems.properties,
-      "source_files item properties are missing",
-    );
-    assert.deepEqual(Object.keys(sourceFileProperties).sort(), [
-      "download_url",
-      "file_id",
-      "file_name",
-      "mime_type",
-      "role",
-    ]);
-    const sourceFileRequired = sourceFileItems.required;
-    assert(Array.isArray(sourceFileRequired));
-    assert.deepEqual([...sourceFileRequired].sort(), ["download_url", "file_id"]);
+    assertFileParamTool(analyzeTool, "source_files", ["role"]);
+
+    const adoptTool = tools.find((tool) => tool.name === "adopt_visual_concept");
+    assert(adoptTool);
+    assertFileParamTool(adoptTool, "concept_files");
 
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
