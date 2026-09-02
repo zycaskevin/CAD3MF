@@ -67,6 +67,12 @@ function withForbiddenExpression(fixture: Record<string, unknown>): Record<strin
   return unsafe;
 }
 
+function asObject(value: unknown, message: string): Record<string, unknown> {
+  assert.equal(typeof value, "object", message);
+  assert.notEqual(value, null, message);
+  return value as Record<string, unknown>;
+}
+
 test("M0 MCP golden path persists revisions across server restarts", async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-mcp-"));
   const fixture = JSON.parse(
@@ -93,6 +99,29 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
         "validate_design",
       ],
     );
+
+    const analyzeTool = tools.find((tool) => tool.name === "analyze_visual_input");
+    assert(analyzeTool);
+    const analyzeMeta = asObject(analyzeTool._meta, "analyze_visual_input has no _meta");
+    assert.deepEqual(analyzeMeta["openai/fileParams"], ["source_files"]);
+    const analyzeInput = asObject(analyzeTool.inputSchema, "analyze_visual_input has no input schema");
+    const analyzeProperties = asObject(analyzeInput.properties, "analyze input has no properties");
+    const sourceFiles = asObject(analyzeProperties.source_files, "source_files schema is missing");
+    const sourceFileItems = asObject(sourceFiles.items, "source_files item schema is missing");
+    const sourceFileProperties = asObject(
+      sourceFileItems.properties,
+      "source_files item properties are missing",
+    );
+    assert.deepEqual(Object.keys(sourceFileProperties).sort(), [
+      "download_url",
+      "file_id",
+      "file_name",
+      "mime_type",
+      "role",
+    ]);
+    const sourceFileRequired = sourceFileItems.required;
+    assert(Array.isArray(sourceFileRequired));
+    assert.deepEqual([...sourceFileRequired].sort(), ["download_url", "file_id"]);
 
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
