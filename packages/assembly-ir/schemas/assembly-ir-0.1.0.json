@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/assembly-ir/0.1.0",
+  "title": "CAD3MF Assembly IR 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assembly_id",
+    "project_id",
+    "revision_id",
+    "product_type",
+    "units",
+    "parts",
+    "interfaces",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "assembly_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "product_type": {"enum": ["figurine_with_base", "modular_tank", "modular_vehicle", "multi_part_product", "hybrid", "other"]},
+    "units": {"const": "mm"},
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/part"}
+    },
+    "interfaces": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/interface"}
+    },
+    "notes": {
+      "type": "array",
+      "items": {"type": "string", "maxLength": 1000},
+      "maxItems": 128
+    },
+    "status": {"enum": ["draft", "needs_validation", "validated", "rejected"]}
+  },
+  "$defs": {
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z", "rotate_x", "rotate_y", "rotate_z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"},
+        "rotate_x": {"type": "number"},
+        "rotate_y": {"type": "number"},
+        "rotate_z": {"type": "number"}
+      }
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_kind", "source_ref", "role", "transform"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "source_kind": {"enum": ["cad_ir", "asset_ir", "assembly_ir"]},
+        "source_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "source_artifact_sha256": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+        "role": {"enum": ["structural", "shell", "figurine", "base", "connector", "decorative", "replaceable_module", "other"]},
+        "transform": {"$ref": "#/$defs/transform"},
+        "required_for_product": {"type": "boolean", "default": true}
+      }
+    },
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "part_a", "part_b", "spec"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "type": {"enum": ["magnetic_mount", "snap_fit", "peg_socket", "screw", "dovetail", "press_fit", "glue", "free_placement"]},
+        "part_a": {"type": "string", "minLength": 1, "maxLength": 128},
+        "part_b": {"type": "string", "minLength": 1, "maxLength": 128},
+        "spec": {"$ref": "#/$defs/interfaceSpec"}
+      }
+    },
+    "interfaceSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clearance_mm": {"type": ["number", "null"], "minimum": 0},
+        "tolerance_mm": {"type": ["number", "null"], "minimum": 0},
+        "magnet_diameter_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "magnet_depth_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "peg_diameter_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "engagement_depth_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "screw_standard": {"type": ["string", "null"], "maxLength": 64},
+        "adhesive_gap_mm": {"type": ["number", "null"], "minimum": 0}
+      }
+    }
+  }
+}

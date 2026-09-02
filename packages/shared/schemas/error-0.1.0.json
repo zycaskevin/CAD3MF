@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/error/0.1.0",
+  "title": "CAD3MF Structured Error 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "stage", "code", "retryable", "message", "trace_id"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "stage": {
+      "enum": ["intake", "visual_analysis", "concept", "confirmation", "turnaround", "geometry", "productization", "assembly", "validation", "manufacturing", "slicing", "bundle", "external_upload"]
+    },
+    "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
+    "retryable": {"type": "boolean"},
+    "message": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "trace_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "job_id": {"type": ["string", "null"], "maxLength": 128},
+    "cause_code": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
+    "context": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/contextEntry"}
+    }
+  },
+  "$defs": {
+    "contextEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
+        "value": {
+          "type": ["string", "number", "boolean", "null"],
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+}
