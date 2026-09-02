@@ -15,7 +15,6 @@ const meshOutputSchema = z.object({
   mesh_artifact: jsonObjectSchema,
   asset_ir: jsonObjectSchema,
   provider: jsonObjectSchema,
-  artifact_url: z.string().url().optional(),
 });
 
 function schemaText(relativePath: string): string {
@@ -32,7 +31,7 @@ function failure(error: unknown) {
   return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] };
 }
 
-export function registerMeshM1(server: McpServer, options: { publicBaseUrl?: string; runtime?: MeshRuntime } = {}): MeshRuntime {
+export function registerMeshM1(server: McpServer, options: { runtime?: MeshRuntime } = {}): MeshRuntime {
   const runtime = options.runtime ?? new MeshRuntime();
 
   for (const [name, uri, path, title] of [
@@ -82,15 +81,7 @@ export function registerMeshM1(server: McpServer, options: { publicBaseUrl?: str
           texturePolicy: texture_policy,
           ...(target_triangle_count === undefined ? {} : { targetTriangleCount: target_triangle_count }),
         });
-        const artifact = output.mesh_artifact as Record<string, unknown>;
-        const publicOutput: JsonObject = {
-          ...output,
-          provider: runtime.providerInfo(),
-          ...(options.publicBaseUrl
-            ? { artifact_url: `${options.publicBaseUrl.replace(/\/$/, "")}/mesh-artifacts/${encodeURIComponent(project_id)}/${encodeURIComponent(String(artifact.artifact_id))}` }
-            : {}),
-        };
-        return result(publicOutput);
+        return result({ ...output, provider: runtime.providerInfo() });
       } catch (error) {
         return failure(error);
       }
