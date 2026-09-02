@@ -19,6 +19,7 @@ import type {
   MeshInputView,
   MeshProvider,
   MeshProviderOutput,
+  MeshTargetDimension,
 } from "./mesh-types.js";
 import { VisualStore } from "./visual-store.js";
 
@@ -93,13 +94,18 @@ function assetType(kind: MeshAssetKind): string {
   return kind;
 }
 
-function printDefaults(kind: MeshAssetKind): Record<string, unknown> {
+function printDefaults(
+  kind: MeshAssetKind,
+  targetDimension: MeshTargetDimension | null,
+): Record<string, unknown> {
   const organic = kind === "figurine" || kind === "character";
+  const normalizedName = targetDimension?.name.toLowerCase().replace(/[.-]/g, "_") ?? "";
   return {
     minimum_wall_thickness_mm: organic ? 1.2 : 1.6,
     minimum_feature_size_mm: 1.0,
     base_required: organic,
-    target_height_mm: null,
+    target_height_mm:
+      targetDimension && normalizedName.includes("height") ? targetDimension.value : null,
     maximum_overhang_deg: null,
   };
 }
@@ -112,6 +118,57 @@ function providerDefaults(provider: MeshProvider): {
     return { outputFormat: "glb", texturePolicy: "pbr" };
   }
   return { outputFormat: "ply", texturePolicy: "none" };
+}
+
+function normalizeDimensionName(value: string): string {
+  return value.trim().toLowerCase().replace(/[.\s-]+/g, "_");
+}
+
+function targetDimensionPriority(kind: MeshAssetKind): string[] {
+  if (kind === "figurine" || kind === "character") {
+    return ["target_height", "overall_height", "height", "target_length", "overall_length", "length"];
+  }
+  return [
+    "target_length",
+    "overall_length",
+    "length",
+    "target_width",
+    "overall_width",
+    "width",
+    "target_height",
+    "overall_height",
+    "height",
+  ];
+}
+
+function chooseTargetDimension(
+  designIntent: Record<string, unknown>,
+  kind: MeshAssetKind,
+): MeshTargetDimension | null {
+  const known = designIntent.known_dimensions;
+  if (!Array.isArray(known)) return null;
+  const trustworthy = known.flatMap((value): MeshTargetDimension[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const dimension = value as Record<string, unknown>;
+    const source = String(dimension.source ?? "");
+    const unit = String(dimension.unit ?? "");
+    const numeric = dimension.value;
+    const name = String(dimension.name ?? "");
+    if (source !== "user" && source !== "measured_reference") return [];
+    if (unit !== "mm" || typeof numeric !== "number" || !Number.isFinite(numeric) || numeric <= 0) {
+      return [];
+    }
+    if (!name) return [];
+    return [{ name, value: numeric, unit: "mm" }];
+  });
+  const priorities = targetDimensionPriority(kind);
+  for (const preferred of priorities) {
+    const found = trustworthy.find(
+      (dimension) => normalizeDimensionName(dimension.name) === preferred,
+    );
+    if (found) return found;
+  }
+  return trustworthy[0] ?? null;
 }
 
 function consumedInputViews(
@@ -154,6 +211,7 @@ export class MeshRuntime {
       provider_id: this.#provider.providerId,
       model_id: this.#provider.modelId,
       model_version: this.#provider.modelVersion,
+      requires_target_dimension: this.#provider.requiresTargetDimension,
     };
   }
 
@@ -184,7 +242,17 @@ export class MeshRuntime {
     if (!sourceIntentRevisionId) {
       throw new Error("visual concept is missing source design intent provenance");
     }
-    this.#visualStore.getDocument(projectId, "design_intent", sourceIntentRevisionId);
+    const sourceIntent = this.#visualStore.getDocument(
+      projectId,
+      "design_intent",
+      sourceIntentRevisionId,
+    );
+    const targetDimension = chooseTargetDimension(sourceIntent, input.assetKind);
+    if (this.#provider.requiresTargetDimension && !targetDimension) {
+      throw new Error(
+        "MESH_SCALE_REFERENCE_REQUIRED: production mesh generation requires a user or measured mm dimension",
+      );
+    }
 
     const viewRecords = turnaround.views;
     if (!Array.isArray(viewRecords) || viewRecords.length < 4) {
@@ -218,6 +286,7 @@ export class MeshRuntime {
       qualityTier: input.qualityTier ?? "standard",
       outputFormat: input.outputFormat ?? defaults.outputFormat,
       texturePolicy: input.texturePolicy ?? defaults.texturePolicy,
+      targetDimensions: targetDimension ? [targetDimension] : [],
       ...(input.targetTriangleCount === undefined
         ? {}
         : { targetTriangleCount: input.targetTriangleCount }),
@@ -231,6 +300,11 @@ export class MeshRuntime {
       quality_tier: request.qualityTier,
       output_format: request.outputFormat,
       texture_policy: request.texturePolicy,
+      target_dimensions: request.targetDimensions.map((dimension) => ({
+        name: dimension.name,
+        value: dimension.value,
+        unit: dimension.unit,
+      })),
       target_triangle_count: request.targetTriangleCount ?? null,
       preserve_semantic_regions: true,
       notes: [],
@@ -332,7 +406,11 @@ export class MeshRuntime {
         units: "mm",
         style: null,
         pose: null,
-        target_dimensions: [],
+        target_dimensions: request.targetDimensions.map((dimension) => ({
+          name: dimension.name,
+          value: dimension.value,
+          unit: dimension.unit,
+        })),
         geometry_artifact: {
           artifact_id: meshArtifact.artifactId,
           sha256: meshArtifact.sha256,
@@ -342,7 +420,7 @@ export class MeshRuntime {
           triangle_count: generated.triangleCount,
         },
         regions: [],
-        print_constraints: printDefaults(request.assetKind),
+        print_constraints: printDefaults(request.assetKind, targetDimension),
         provenance: {
           generator_kind: "mesh_provider",
           provider: this.#provider.providerId,
