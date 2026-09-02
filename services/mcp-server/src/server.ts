@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 
 import { CadDeskRuntime } from "./runtime.js";
 import type { JsonObject } from "./types.js";
+import { registerHostVisualConceptAdoption } from "./visual-adoption-server.js";
 import { registerVisualM1 } from "./visual-server.js";
 
 export const VIEWER_RESOURCE_URI = "ui://caddesk/viewer/v1.html";
@@ -262,7 +263,8 @@ export function createCadDeskServer(
     "inspect_design",
     {
       title: "Inspect CAD design",
-      description: "Use this when parameters, feature tree, or geometry summary are needed for a revision.",
+      description:
+        "Use this when parameters, feature tree, or geometry summary are needed for a revision.",
       inputSchema: z.object(revisionSelector),
       outputSchema: inspectSchema,
       annotations: {
@@ -285,7 +287,8 @@ export function createCadDeskServer(
     "render_design",
     {
       title: "Render CAD design",
-      description: "Use this when the user wants to view an existing CAD revision in the interactive viewer.",
+      description:
+        "Use this when the user wants to view an existing CAD revision in the interactive viewer.",
       inputSchema: z.object(revisionSelector),
       ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
       annotations: {
@@ -364,6 +367,9 @@ export function createCadDeskServer(
   );
 
   registerVisualM1(server, {
+    ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+  });
+  registerHostVisualConceptAdoption(server, {
     ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
   });
 
