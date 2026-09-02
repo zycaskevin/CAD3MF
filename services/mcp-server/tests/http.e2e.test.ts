@@ -23,14 +23,18 @@ async function freePort(): Promise<number> {
   const address = server.address();
   assert(address && typeof address === "object");
   const port = address.port;
-  await new Promise<void>((resolveClose, reject) => server.close((error) => (error ? reject(error) : resolveClose())));
+  await new Promise<void>((resolveClose, reject) =>
+    server.close((error) => (error ? reject(error) : resolveClose())),
+  );
   return port;
 }
 
 async function waitForHealth(baseUrl: string, child: ChildProcess): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`HTTP server exited early with code ${child.exitCode}`);
+    if (child.exitCode !== null) {
+      throw new Error(`HTTP server exited early with code ${child.exitCode}`);
+    }
     try {
       const response = await fetch(`${baseUrl}/healthz`);
       if (response.ok) return;
@@ -78,7 +82,7 @@ function structured(result: {
   return result.structuredContent as Record<string, unknown>;
 }
 
-test("HTTP MCP serves the ChatGPT viewer and immutable CAD artifacts", async () => {
+test("HTTP MCP serves the ChatGPT viewer and immutable CAD/visual artifacts", async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-http-"));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -183,6 +187,68 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD artifacts", async () 
     assert.match(threeMf.headers.get("content-type") ?? "", /^model\/3mf/);
     const threeMfBytes = new Uint8Array(await threeMf.arrayBuffer());
     assert.equal(new TextDecoder().decode(threeMfBytes.slice(0, 2)), "PK");
+
+    const sourceSha = "d".repeat(64);
+    const analyzed = structured(
+      await client.callTool({
+        name: "analyze_visual_input",
+        arguments: {
+          project_id: "http-visual-figurine",
+          product_kind: "figurine",
+          design_prompt: "Create a stylized collectible figurine with a stable standing pose.",
+          style: "chibi_collectible",
+          requested_functions: ["stable_base"],
+          source_assets: [
+            {
+              asset_id: "http-reference-1",
+              sha256: sourceSha,
+              media_type: "image/png",
+              role: "identity_reference",
+            },
+          ],
+          known_dimensions: [
+            {
+              name: "target_height",
+              value: 120,
+              unit: "mm",
+              source: "user",
+              confidence: 1,
+            },
+          ],
+        },
+      }),
+    );
+    const designIntent = analyzed.design_intent as Record<string, unknown>;
+    assert.equal(designIntent.project_id, "http-visual-figurine");
+    assert.equal(designIntent.status, "needs_confirmation");
+    assert.equal("artifact_path" in analyzed, false);
+
+    const generatedConcept = structured(
+      await client.callTool({
+        name: "generate_concept",
+        arguments: { project_id: "http-visual-figurine" },
+      }),
+    );
+    const visualConcept = generatedConcept.visual_concept as Record<string, unknown>;
+    assert.equal(visualConcept.status, "needs_confirmation");
+    assert.equal("artifact_path" in visualConcept, false);
+    const visualArtifactUrls = generatedConcept.artifact_urls as Record<string, string>;
+    const visualUrl = Object.values(visualArtifactUrls)[0];
+    assert(visualUrl);
+    assert.match(visualUrl, /^http:\/\/127\.0\.0\.1:\d+\/visual-artifacts\//);
+
+    const visualImage = await fetch(visualUrl, { headers: { origin: "null" } });
+    assert.equal(visualImage.status, 200);
+    assert.equal(visualImage.headers.get("access-control-allow-origin"), "*");
+    assert.match(visualImage.headers.get("content-type") ?? "", /^image\/png/);
+    const visualBytes = new Uint8Array(await visualImage.arrayBuffer());
+    assert.deepEqual([...visualBytes.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+
+    const rejectedVisualHost = await requestStatus(visualUrl, {
+      host: "attacker.invalid",
+      origin: "null",
+    });
+    assert.equal(rejectedVisualHost, 403);
   } finally {
     if (client) await client.close().catch(() => undefined);
     child.kill("SIGTERM");
