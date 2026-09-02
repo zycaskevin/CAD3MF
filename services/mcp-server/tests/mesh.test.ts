@@ -20,6 +20,55 @@ async function seedTurnaround(
   productKind: "figurine" | "vehicle",
 ): Promise<string> {
   const store = new VisualStore(join(dataDir, "visual.sqlite"));
+  const createdAt = "2026-09-02T00:00:00Z";
+  const intentRevisionId = "intent-r1";
+  const conceptRevisionId = "concept-r2";
+
+  store.addDocument(
+    projectId,
+    "design_intent",
+    intentRevisionId,
+    {
+      schema_version: "0.1.0",
+      intent_id: `intent-${projectId}`,
+      project_id: projectId,
+      revision_id: intentRevisionId,
+      product_kind: productKind,
+      source_assets: [],
+      known_dimensions: [],
+      observed_features: [],
+      hidden_geometry_assumptions: [],
+      questions: [],
+      status: "confirmed",
+    },
+    createdAt,
+  );
+  store.addDocument(
+    projectId,
+    "visual_concept",
+    conceptRevisionId,
+    {
+      schema_version: "0.1.0",
+      concept_id: `concept-${projectId}`,
+      project_id: projectId,
+      revision_id: conceptRevisionId,
+      source_intent_revision_id: intentRevisionId,
+      product_kind: productKind,
+      brief: "test concept",
+      artifacts: [],
+      design_notes: [],
+      open_decisions: [],
+      status: "design_locked",
+      provenance: {
+        provider: "test",
+        model: "fixture",
+        job_id: "concept-job",
+        input_artifact_sha256: [PNG_SHA],
+      },
+    },
+    createdAt,
+  );
+
   const artifactDir = join(dataDir, "visual-artifacts", projectId);
   await mkdir(artifactDir, { recursive: true });
   const viewNames = ["front", "left", "right", "back", "three_quarter_front", "three_quarter_back"];
@@ -34,7 +83,7 @@ async function seedTurnaround(
       path,
       sha256: PNG_SHA,
       mediaType: "image/png",
-      createdAt: "2026-09-02T00:00:00Z",
+      createdAt,
     });
     views.push({
       view,
@@ -58,7 +107,7 @@ async function seedTurnaround(
       project_id: projectId,
       revision_id: revisionId,
       parent_revision_id: null,
-      source_concept_revision_id: "concept-r2",
+      source_concept_revision_id: conceptRevisionId,
       coverage_policy: "full_six_view",
       views,
       consistency: {
@@ -75,11 +124,11 @@ async function seedTurnaround(
         job_id: "seed-job",
         input_artifact_sha256: [PNG_SHA],
       },
-      created_at: "2026-09-02T00:00:00Z",
-      updated_at: "2026-09-02T00:00:00Z",
+      created_at: createdAt,
+      updated_at: createdAt,
       product_kind: productKind,
     },
-    "2026-09-02T00:00:00Z",
+    createdAt,
   );
   return revisionId;
 }
@@ -91,7 +140,11 @@ for (const testCase of [
   test(`M1-003 uses the same mesh pipeline for ${testCase.name}`, async () => {
     const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-mesh-"));
     try {
-      const turnaroundRevisionId = await seedTurnaround(dataDir, testCase.projectId, testCase.name === "figurine" ? "figurine" : "vehicle");
+      const turnaroundRevisionId = await seedTurnaround(
+        dataDir,
+        testCase.projectId,
+        testCase.name === "figurine" ? "figurine" : "vehicle",
+      );
       const runtime = new MeshRuntime({ dataDir });
       const output = await runtime.generateMesh({
         projectId: testCase.projectId,
@@ -109,6 +162,8 @@ for (const testCase of [
       assert.equal(mesh.triangle_count, 12);
       assert.match(String(mesh.sha256), /^[a-f0-9]{64}$/);
       assert.equal(asset.asset_type, testCase.assetKind);
+      assert.equal(asset.source_intent_revision_id, "intent-r1");
+      assert.equal(asset.source_turnaround_revision_id, turnaroundRevisionId);
       assert.equal(asset.status, "generated");
       assert.equal(job.status, "succeeded");
       assert.equal("printable" in mesh, false);
@@ -116,6 +171,7 @@ for (const testCase of [
       const restarted = new MeshRuntime({ dataDir });
       const persisted = restarted.getAsset(testCase.projectId);
       assert.equal(persisted.asset_type, testCase.assetKind);
+      assert.equal(persisted.source_intent_revision_id, "intent-r1");
       assert.equal(
         (persisted.geometry_artifact as Record<string, unknown>).sha256,
         mesh.sha256,
