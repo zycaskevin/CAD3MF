@@ -11,12 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 64
 
 SCHEMA_PATHS = {
-    "design_intent": ROOT
-    / "packages/design-intent/schemas/design-intent-0.1.0.json",
+    "design_intent": ROOT / "packages/design-intent/schemas/design-intent-0.1.0.json",
     "asset_ir": ROOT / "packages/asset-ir/schemas/asset-ir-0.1.0.json",
     "assembly_ir": ROOT / "packages/assembly-ir/schemas/assembly-ir-0.1.0.json",
-    "manufacturing_ir": ROOT
-    / "packages/manufacturing/schemas/manufacturing-ir-0.1.0.json",
+    "manufacturing_ir": ROOT / "packages/manufacturing/schemas/manufacturing-ir-0.1.0.json",
     "job_manifest": ROOT / "packages/shared/schemas/job-manifest-0.1.0.json",
     "error": ROOT / "packages/shared/schemas/error-0.1.0.json",
 }
@@ -229,9 +227,7 @@ def valid_examples() -> dict[str, dict]:
         "blocked_reason_code": "TURNAROUND_REQUIRED",
         "inputs": [],
         "outputs": [],
-        "tool_versions": [
-            {"component": "cad3mf-mcp", "version": "m1-dev"}
-        ],
+        "tool_versions": [{"component": "cad3mf-mcp", "version": "m1-dev"}],
         "created_at": "2026-09-02T10:00:00+08:00",
         "updated_at": "2026-09-02T10:00:00+08:00",
     }
