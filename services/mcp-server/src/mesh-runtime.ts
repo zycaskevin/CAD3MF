@@ -2,10 +2,24 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { createM1Job, failM1Job, startM1Job, succeedM1Job, type M1ArtifactRef, type M1JobManifest } from "./jobs.js";
-import { DeterministicMeshProvider } from "./mesh-provider.js";
+import {
+  createM1Job,
+  failM1Job,
+  startM1Job,
+  succeedM1Job,
+  type M1ArtifactRef,
+  type M1JobManifest,
+} from "./jobs.js";
+import { createMeshProviderFromEnv } from "./mesh-provider-factory.js";
 import { MeshStore, type StoredMeshArtifact } from "./mesh-store.js";
-import type { MeshAssetKind, MeshFormat, MeshGenerationRequest, MeshProvider } from "./mesh-types.js";
+import type {
+  MeshAssetKind,
+  MeshFormat,
+  MeshGenerationRequest,
+  MeshInputView,
+  MeshProvider,
+  MeshProviderOutput,
+} from "./mesh-types.js";
 import { VisualStore } from "./visual-store.js";
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -53,11 +67,19 @@ function validateMeshBytes(format: MeshFormat, bytes: Uint8Array): void {
     return;
   }
   const prefix = new TextDecoder().decode(bytes.slice(0, Math.min(bytes.byteLength, 128)));
-  if (format === "ply" && !prefix.startsWith("ply\n")) throw new Error("mesh provider returned invalid PLY header");
-  if (format === "obj" && !/(^|\n)(v|o|g)\s/.test(prefix)) throw new Error("mesh provider returned invalid OBJ content");
+  if (format === "ply" && !prefix.startsWith("ply\n")) {
+    throw new Error("mesh provider returned invalid PLY header");
+  }
+  if (format === "obj" && !/(^|\n)(v|o|g)\s/.test(prefix)) {
+    throw new Error("mesh provider returned invalid OBJ content");
+  }
 }
 
-function logicalRef(document: Record<string, unknown>, kind: string, revisionId: string): M1ArtifactRef {
+function logicalRef(
+  document: Record<string, unknown>,
+  kind: string,
+  revisionId: string,
+): M1ArtifactRef {
   return {
     artifact_id: `${kind}:${revisionId}`,
     kind,
@@ -82,6 +104,37 @@ function printDefaults(kind: MeshAssetKind): Record<string, unknown> {
   };
 }
 
+function providerDefaults(provider: MeshProvider): {
+  outputFormat: MeshFormat;
+  texturePolicy: "none" | "vertex_color" | "pbr";
+} {
+  if (provider.providerId === "sf3d-http") {
+    return { outputFormat: "glb", texturePolicy: "pbr" };
+  }
+  return { outputFormat: "ply", texturePolicy: "none" };
+}
+
+function consumedInputViews(
+  generated: MeshProviderOutput,
+  available: MeshInputView[],
+): MeshInputView[] {
+  if (!Array.isArray(generated.consumedViews) || generated.consumedViews.length === 0) {
+    throw new Error("mesh provider must report at least one consumed turnaround view");
+  }
+  const unique = new Set(generated.consumedViews);
+  if (unique.size !== generated.consumedViews.length) {
+    throw new Error("mesh provider reported duplicate consumed turnaround views");
+  }
+  const byName = new Map(available.map((view) => [view.view, view]));
+  return generated.consumedViews.map((viewName) => {
+    const view = byName.get(viewName);
+    if (!view) {
+      throw new Error(`mesh provider reported unknown consumed turnaround view ${viewName}`);
+    }
+    return view;
+  });
+}
+
 export class MeshRuntime {
   readonly #dataDir: string;
   readonly #meshStore: MeshStore;
@@ -93,7 +146,7 @@ export class MeshRuntime {
     mkdirSync(this.#dataDir, { recursive: true });
     this.#meshStore = options.meshStore ?? new MeshStore(join(this.#dataDir, "mesh.sqlite"));
     this.#visualStore = options.visualStore ?? new VisualStore(join(this.#dataDir, "visual.sqlite"));
-    this.#provider = options.provider ?? new DeterministicMeshProvider();
+    this.#provider = options.provider ?? createMeshProviderFromEnv();
   }
 
   providerInfo(): Record<string, unknown> {
@@ -106,9 +159,15 @@ export class MeshRuntime {
 
   async generateMesh(input: GenerateMeshInput): Promise<Record<string, unknown>> {
     const projectId = requireProjectId(input.projectId);
-    const turnaround = this.#visualStore.getDocument(projectId, "turnaround_set", input.turnaroundRevisionId);
+    const turnaround = this.#visualStore.getDocument(
+      projectId,
+      "turnaround_set",
+      input.turnaroundRevisionId,
+    );
     if (turnaround.status !== "accepted" && turnaround.status !== "needs_review") {
-      throw new Error(`turnaround ${String(turnaround.revision_id)} is not eligible for mesh generation`);
+      throw new Error(
+        `turnaround ${String(turnaround.revision_id)} is not eligible for mesh generation`,
+      );
     }
     const consistency = turnaround.consistency as Record<string, unknown> | undefined;
     if (!consistency || consistency.pass !== true) {
@@ -116,9 +175,15 @@ export class MeshRuntime {
     }
     const sourceConceptRevisionId = String(turnaround.source_concept_revision_id ?? "");
     if (!sourceConceptRevisionId) throw new Error("turnaround is missing source concept provenance");
-    const sourceConcept = this.#visualStore.getDocument(projectId, "visual_concept", sourceConceptRevisionId);
+    const sourceConcept = this.#visualStore.getDocument(
+      projectId,
+      "visual_concept",
+      sourceConceptRevisionId,
+    );
     const sourceIntentRevisionId = String(sourceConcept.source_intent_revision_id ?? "");
-    if (!sourceIntentRevisionId) throw new Error("visual concept is missing source design intent provenance");
+    if (!sourceIntentRevisionId) {
+      throw new Error("visual concept is missing source design intent provenance");
+    }
     this.#visualStore.getDocument(projectId, "design_intent", sourceIntentRevisionId);
 
     const viewRecords = turnaround.views;
@@ -126,13 +191,15 @@ export class MeshRuntime {
       throw new Error("mesh generation requires at least four turnaround views");
     }
 
-    const views = viewRecords.map((value) => {
+    const views: MeshInputView[] = viewRecords.map((value) => {
       if (typeof value !== "object" || value === null) throw new Error("invalid turnaround view");
       const view = value as Record<string, unknown>;
       const artifactId = String(view.artifact_id);
       const artifact = this.#visualStore.getArtifact(projectId, artifactId);
       const bytes = new Uint8Array(readFileSync(artifact.path));
-      if (digest(bytes) !== artifact.sha256) throw new Error(`turnaround artifact checksum mismatch ${artifactId}`);
+      if (digest(bytes) !== artifact.sha256) {
+        throw new Error(`turnaround artifact checksum mismatch ${artifactId}`);
+      }
       return {
         view: String(view.view),
         sha256: artifact.sha256,
@@ -143,14 +210,17 @@ export class MeshRuntime {
 
     const requestRevisionId = this.#meshStore.nextRevisionId(projectId, "mesh_request");
     const now = new Date().toISOString();
+    const defaults = providerDefaults(this.#provider);
     const request: MeshGenerationRequest = {
       projectId,
       turnaroundRevisionId: String(turnaround.revision_id),
       assetKind: input.assetKind,
       qualityTier: input.qualityTier ?? "standard",
-      outputFormat: input.outputFormat ?? "ply",
-      texturePolicy: input.texturePolicy ?? "none",
-      ...(input.targetTriangleCount === undefined ? {} : { targetTriangleCount: input.targetTriangleCount }),
+      outputFormat: input.outputFormat ?? defaults.outputFormat,
+      texturePolicy: input.texturePolicy ?? defaults.texturePolicy,
+      ...(input.targetTriangleCount === undefined
+        ? {}
+        : { targetTriangleCount: input.targetTriangleCount }),
     };
     const requestDoc: Record<string, unknown> = {
       schema_version: "0.1.0",
@@ -182,7 +252,13 @@ export class MeshRuntime {
         media_type: view.mediaType,
         revision_ref: request.turnaroundRevisionId,
       })),
-      toolVersions: [{ component: this.#provider.providerId, version: this.#provider.modelId, digest: null }],
+      toolVersions: [
+        {
+          component: this.#provider.providerId,
+          version: this.#provider.modelVersion ?? this.#provider.modelId,
+          digest: null,
+        },
+      ],
       now,
     });
     this.#meshStore.saveJob(job);
@@ -191,12 +267,26 @@ export class MeshRuntime {
 
     try {
       const generated = await this.#provider.generate({ request, turnaround, views });
-      if (generated.format !== request.outputFormat) throw new Error("mesh provider output format differs from request");
+      if (generated.format !== request.outputFormat) {
+        throw new Error("mesh provider output format differs from request");
+      }
       validateMeshBytes(generated.format, generated.bytes);
-      if (!Number.isInteger(generated.vertexCount) || generated.vertexCount < 0) throw new Error("invalid vertex count");
-      if (!Number.isInteger(generated.triangleCount) || generated.triangleCount < 0) throw new Error("invalid triangle count");
+      if (!Number.isInteger(generated.vertexCount) || generated.vertexCount < 0) {
+        throw new Error("invalid vertex count");
+      }
+      if (!Number.isInteger(generated.triangleCount) || generated.triangleCount < 0) {
+        throw new Error("invalid triangle count");
+      }
+      const consumedViews = consumedInputViews(generated, views);
+      const consumedDigests = consumedViews.map((view) => view.sha256);
 
-      const meshArtifact = this.#storeMesh(projectId, generated.format, generated.mediaType, generated.bytes, now);
+      const meshArtifact = this.#storeMesh(
+        projectId,
+        generated.format,
+        generated.mediaType,
+        generated.bytes,
+        now,
+      );
       const meshRevisionId = this.#meshStore.nextRevisionId(projectId, "mesh_artifact");
       const meshDoc: Record<string, unknown> = {
         schema_version: "0.1.0",
@@ -215,12 +305,13 @@ export class MeshRuntime {
           self_intersections_detected: generated.topology.selfIntersectionsDetected,
           notes: generated.topology.notes,
         },
+        consumed_views: consumedViews.map((view) => view.view),
         provenance: {
           provider: this.#provider.providerId,
           model: this.#provider.modelId,
           model_version: this.#provider.modelVersion,
           job_id: job.job_id,
-          input_artifact_sha256: views.map((view) => view.sha256),
+          input_artifact_sha256: consumedDigests,
           generated_at: now,
         },
         status: "generated",
@@ -258,7 +349,7 @@ export class MeshRuntime {
           model: this.#provider.modelId,
           model_version: this.#provider.modelVersion,
           job_id: job.job_id,
-          input_artifact_sha256: views.map((view) => view.sha256),
+          input_artifact_sha256: consumedDigests,
         },
         status: "generated",
       };
@@ -278,7 +369,12 @@ export class MeshRuntime {
       ];
       job = succeedM1Job(job, outputs, now);
       this.#meshStore.saveJob(job);
-      return { job, mesh_request: requestDoc, mesh_artifact: meshDoc, asset_ir: assetDoc };
+      return {
+        job,
+        mesh_request: requestDoc,
+        mesh_artifact: meshDoc,
+        asset_ir: assetDoc,
+      };
     } catch (error) {
       job = failM1Job(job, "MESH_GENERATION_FAILED", new Date().toISOString());
       this.#meshStore.saveJob(job);
@@ -312,7 +408,15 @@ export class MeshRuntime {
     mkdirSync(directory, { recursive: true });
     const path = join(directory, `${artifactId}.${extension(format)}`);
     writeFileSync(path, Buffer.from(bytes), { flag: "wx" });
-    const artifact: StoredMeshArtifact = { projectId, artifactId, path, sha256, format, mediaType, createdAt };
+    const artifact: StoredMeshArtifact = {
+      projectId,
+      artifactId,
+      path,
+      sha256,
+      format,
+      mediaType,
+      createdAt,
+    };
     this.#meshStore.saveArtifact(artifact);
     return artifact;
   }
