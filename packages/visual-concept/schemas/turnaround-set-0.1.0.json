@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/turnaround-set/0.1.0",
+  "title": "CAD3MF Turnaround Set 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "turnaround_id",
+    "project_id",
+    "revision_id",
+    "source_concept_revision_id",
+    "coverage_policy",
+    "views",
+    "consistency",
+    "status",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "turnaround_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "source_concept_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "coverage_policy": {"enum": ["minimum_four_view", "full_six_view"]},
+    "views": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/view"}
+    },
+    "consistency": {"$ref": "#/$defs/consistency"},
+    "status": {"enum": ["draft", "needs_review", "accepted", "rejected", "superseded"]},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "created_at": {"type": ["string", "null"], "format": "date-time"},
+    "updated_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"coverage_policy": {"const": "full_six_view"}}},
+      "then": {"properties": {"views": {"minItems": 6}}}
+    }
+  ],
+  "$defs": {
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["view", "artifact_id", "sha256", "media_type", "projection"],
+      "properties": {
+        "view": {
+          "enum": ["front", "left", "right", "back", "three_quarter_front", "three_quarter_back"]
+        },
+        "artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "media_type": {"enum": ["image/png", "image/jpeg", "image/webp"]},
+        "projection": {"enum": ["orthographic_like", "perspective"]},
+        "width_px": {"type": ["integer", "null"], "minimum": 1, "maximum": 16384},
+        "height_px": {"type": ["integer", "null"], "minimum": 1, "maximum": 16384},
+        "notes": {"type": ["string", "null"], "maxLength": 1000}
+      }
+    },
+    "consistency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "identity_score", "style_score", "silhouette_score", "warnings"],
+      "properties": {
+        "pass": {"type": "boolean"},
+        "identity_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "style_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "silhouette_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "warnings": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "job_id", "input_artifact_sha256"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "input_artifact_sha256": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+        },
+        "generated_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    }
+  }
+}

@@ -11,8 +11,9 @@
     "start:http": "tsx src/http.ts",
     "start:stdio": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test tests/mcp.e2e.test.ts tests/jobs.test.ts",
+    "test": "node --import tsx --test tests/mcp.e2e.test.ts tests/jobs.test.ts tests/visual.test.ts tests/visual-security.test.ts",
     "test:jobs": "node --import tsx --test tests/jobs.test.ts",
+    "test:visual": "node --import tsx --test tests/visual.test.ts tests/visual-security.test.ts",
     "test:http": "node --import tsx --test tests/http.e2e.test.ts"
   },
   "dependencies": {

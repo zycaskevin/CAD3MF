@@ -67,6 +67,36 @@ function withForbiddenExpression(fixture: Record<string, unknown>): Record<strin
   return unsafe;
 }
 
+function asObject(value: unknown, message: string): Record<string, unknown> {
+  assert.equal(typeof value, "object", message);
+  assert.notEqual(value, null, message);
+  return value as Record<string, unknown>;
+}
+
+function assertFileParamTool(
+  tool: { name: string; _meta?: unknown; inputSchema: unknown },
+  field: string,
+  extraProperties: string[] = [],
+): void {
+  const meta = asObject(tool._meta, `${tool.name} has no _meta`);
+  assert.deepEqual(meta["openai/fileParams"], [field]);
+  const input = asObject(tool.inputSchema, `${tool.name} has no input schema`);
+  const properties = asObject(input.properties, `${tool.name} input has no properties`);
+  const fileArray = asObject(properties[field], `${field} schema is missing`);
+  const items = asObject(fileArray.items, `${field} item schema is missing`);
+  const itemProperties = asObject(items.properties, `${field} item properties are missing`);
+  assert.deepEqual(Object.keys(itemProperties).sort(), [
+    "download_url",
+    "file_id",
+    "file_name",
+    "mime_type",
+    ...extraProperties,
+  ].sort());
+  const required = items.required;
+  assert(Array.isArray(required));
+  assert.deepEqual([...required].sort(), ["download_url", "file_id"]);
+}
+
 test("M0 MCP golden path persists revisions across server restarts", async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-mcp-"));
   const fixture = JSON.parse(
@@ -80,8 +110,14 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
       [
+        "adopt_visual_concept",
+        "analyze_visual_input",
+        "confirm_design",
         "create_design",
         "export_design",
+        "generate_concept",
+        "generate_turnaround",
+        "get_visual_job",
         "inspect_design",
         "modify_design",
         "render_design",
@@ -89,13 +125,41 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
       ],
     );
 
+    const analyzeTool = tools.find((tool) => tool.name === "analyze_visual_input");
+    assert(analyzeTool);
+    assertFileParamTool(analyzeTool, "source_files", ["role"]);
+
+    const adoptTool = tools.find((tool) => tool.name === "adopt_visual_concept");
+    assert(adoptTool);
+    assertFileParamTool(adoptTool, "concept_files");
+
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/visual-concept/0.1.0"),
+      true,
+    );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/turnaround-set/0.1.0"),
+      true,
+    );
     const schemaResult = await client.readResource({ uri: "caddesk://schema/cad-ir/0.1" });
     const schemaContent = schemaResult.contents[0];
     assert(schemaContent && "text" in schemaContent && typeof schemaContent.text === "string");
     const schema = JSON.parse(schemaContent.text) as Record<string, unknown>;
     assert.equal(schema.type, "object");
+
+    const visualSchemaResult = await client.readResource({
+      uri: "caddesk://schema/visual-concept/0.1.0",
+    });
+    const visualSchemaContent = visualSchemaResult.contents[0];
+    assert(
+      visualSchemaContent &&
+        "text" in visualSchemaContent &&
+        typeof visualSchemaContent.text === "string",
+    );
+    const visualSchema = JSON.parse(visualSchemaContent.text) as Record<string, unknown>;
+    assert.equal(visualSchema.type, "object");
 
     const traversalAttempt = await client.callTool({
       name: "create_design",
