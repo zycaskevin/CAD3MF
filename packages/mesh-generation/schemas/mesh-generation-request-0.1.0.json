@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/mesh-generation-request/0.1.0",
+  "title": "CAD3MF Mesh Generation Request 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "project_id",
+    "source_turnaround_revision_id",
+    "asset_kind",
+    "quality_tier",
+    "output_format",
+    "texture_policy",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_turnaround_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "asset_kind": {
+      "enum": ["figurine", "character", "vehicle_shell", "hard_surface_shell", "product_shell", "decorative_part", "other"]
+    },
+    "quality_tier": {"enum": ["preview", "standard", "high"]},
+    "output_format": {"enum": ["glb", "obj", "ply"]},
+    "texture_policy": {"enum": ["none", "vertex_color", "pbr"]},
+    "target_dimensions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value", "unit"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+          "value": {"type": "number", "exclusiveMinimum": 0},
+          "unit": {"const": "mm"}
+        }
+      }
+    },
+    "target_triangle_count": {"type": ["integer", "null"], "minimum": 100, "maximum": 5000000},
+    "preserve_semantic_regions": {"type": "boolean", "default": true},
+    "notes": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "status": {"enum": ["draft", "ready", "submitted", "completed", "failed"]},
+    "created_at": {"type": ["string", "null"], "format": "date-time"}
+  }
+}
