@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 
 import { CadDeskRuntime } from "./runtime.js";
 import type { JsonObject } from "./types.js";
+import { registerVisualM1 } from "./visual-server.js";
 
 export const VIEWER_RESOURCE_URI = "ui://caddesk/viewer/v1.html";
 export const VIEWER_MIME_TYPE = "text/html;profile=mcp-app";
@@ -361,6 +362,10 @@ export function createCadDeskServer(
       }
     },
   );
+
+  registerVisualM1(server, {
+    ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+  });
 
   return server;
 }
