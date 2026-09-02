@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/mesh-artifact/0.1.0",
+  "title": "CAD3MF Mesh Artifact 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "project_id",
+    "source_request_id",
+    "sha256",
+    "format",
+    "media_type",
+    "vertex_count",
+    "triangle_count",
+    "bounding_box_mm",
+    "topology_observations",
+    "provenance",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "format": {"enum": ["glb", "obj", "ply"]},
+    "media_type": {"enum": ["model/gltf-binary", "model/obj", "model/ply"]},
+    "vertex_count": {"type": "integer", "minimum": 0},
+    "triangle_count": {"type": "integer", "minimum": 0},
+    "bounding_box_mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": {"$ref": "#/$defs/vec3"},
+        "max": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "topology_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["watertight", "manifold", "self_intersections_detected"],
+      "properties": {
+        "watertight": {"type": ["boolean", "null"]},
+        "manifold": {"type": ["boolean", "null"]},
+        "self_intersections_detected": {"type": ["boolean", "null"]},
+        "notes": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "job_id", "input_artifact_sha256"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
+        "model_version": {"type": ["string", "null"], "maxLength": 128},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "input_artifact_sha256": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+        },
+        "generated_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "status": {"enum": ["generated", "normalized", "rejected"]},
+    "created_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "$defs": {
+    "vec3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    }
+  }
+}
