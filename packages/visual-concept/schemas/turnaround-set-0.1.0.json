@@ -63,20 +63,12 @@
     "consistency": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "assessment_kind",
-        "pass",
-        "identity_score",
-        "style_score",
-        "silhouette_score",
-        "warnings"
-      ],
+      "required": ["pass", "identity_score", "style_score", "silhouette_score", "warnings"],
       "properties": {
-        "assessment_kind": {"enum": ["provider_assessment", "human_review", "unassessed"]},
-        "pass": {"type": ["boolean", "null"]},
-        "identity_score": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
-        "style_score": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
-        "silhouette_score": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "pass": {"type": "boolean"},
+        "identity_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "style_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "silhouette_score": {"type": "number", "minimum": 0, "maximum": 1},
         "warnings": {
           "type": "array",
           "maxItems": 64,
@@ -87,11 +79,10 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["origin_kind", "provider", "model", "job_id", "input_artifact_sha256"],
+      "required": ["provider", "model", "job_id", "input_artifact_sha256"],
       "properties": {
-        "origin_kind": {"enum": ["provider_generated", "host_provided"]},
-        "provider": {"type": ["string", "null"], "maxLength": 128},
-        "model": {"type": ["string", "null"], "maxLength": 256},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
         "job_id": {"type": "string", "minLength": 1, "maxLength": 128},
         "input_artifact_sha256": {
           "type": "array",
