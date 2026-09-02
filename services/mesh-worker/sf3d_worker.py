@@ -7,7 +7,7 @@ import tempfile
 from contextlib import nullcontext
 from io import BytesIO
 from threading import Lock
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 import rembg
@@ -141,15 +141,15 @@ def healthz() -> dict[str, Any]:
 
 @app.post("/v1/generate")
 async def generate(
-    image: UploadFile = File(...),
-    view_name: str = Form(...),
-    quality_tier: str = Form("standard"),
-    texture_policy: str = Form("pbr"),
-    scale_policy: str = Form(...),
-    scale_dimension_name: str = Form(...),
-    target_extent_mm: float = Form(...),
-    target_triangle_count: int | None = Form(None),
-    authorization: str | None = Header(None),
+    image: Annotated[UploadFile, File()],
+    view_name: Annotated[str, Form()],
+    scale_policy: Annotated[str, Form()],
+    scale_dimension_name: Annotated[str, Form()],
+    target_extent_mm: Annotated[float, Form()],
+    quality_tier: Annotated[str, Form()] = "standard",
+    texture_policy: Annotated[str, Form()] = "pbr",
+    target_triangle_count: Annotated[int | None, Form()] = None,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> Response:
     _authorize(authorization)
     if view_name not in {
