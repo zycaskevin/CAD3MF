@@ -31,6 +31,7 @@ export class DeterministicMeshProvider implements MeshProvider {
         selfIntersectionsDetected: false,
         notes: ["Deterministic cube fixture for CI only; not a production reconstruction."],
       },
+      consumedViews: context.views.map((view) => view.view),
     };
   }
 }
