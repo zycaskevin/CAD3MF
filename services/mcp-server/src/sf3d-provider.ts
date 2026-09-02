@@ -82,18 +82,29 @@ function parseStats(header: string | null): Sf3dStats {
   const stats = decoded as Record<string, unknown>;
   const bbox = stats.bounding_box_mm;
   const topology = stats.topology;
-  if (typeof bbox !== "object" || bbox === null) throw new Error("SF3D worker returned invalid bounding box");
-  if (typeof topology !== "object" || topology === null) throw new Error("SF3D worker returned invalid topology");
+  if (typeof bbox !== "object" || bbox === null) {
+    throw new Error("SF3D worker returned invalid bounding box");
+  }
+  if (typeof topology !== "object" || topology === null) {
+    throw new Error("SF3D worker returned invalid topology");
+  }
   const bboxRecord = bbox as Record<string, unknown>;
   const topologyRecord = topology as Record<string, unknown>;
   const notes = topologyRecord.notes;
-  if (notes !== undefined && (!Array.isArray(notes) || notes.some((note) => typeof note !== "string"))) {
+  if (
+    notes !== undefined &&
+    (!Array.isArray(notes) || notes.some((note) => typeof note !== "string"))
+  ) {
     throw new Error("SF3D worker returned invalid topology notes");
   }
   const vertexCount = requireFiniteNumber(stats.vertex_count, "vertex_count");
   const triangleCount = requireFiniteNumber(stats.triangle_count, "triangle_count");
-  if (!Number.isInteger(vertexCount) || vertexCount < 0) throw new Error("SF3D worker returned invalid vertex_count");
-  if (!Number.isInteger(triangleCount) || triangleCount < 0) throw new Error("SF3D worker returned invalid triangle_count");
+  if (!Number.isInteger(vertexCount) || vertexCount < 0) {
+    throw new Error("SF3D worker returned invalid vertex_count");
+  }
+  if (!Number.isInteger(triangleCount) || triangleCount < 0) {
+    throw new Error("SF3D worker returned invalid triangle_count");
+  }
   return {
     vertex_count: vertexCount,
     triangle_count: triangleCount,
@@ -117,15 +128,25 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
   readonly providerId = "sf3d-http";
   readonly modelId = "stabilityai/stable-fast-3d";
   readonly modelVersion: string | null = null;
+  readonly requiresTargetDimension = true;
   readonly #baseUrl: string;
   readonly #timeoutMs: number;
   readonly #apiToken: string | null;
 
   constructor(options: Sf3dHttpMeshProviderOptions = {}) {
-    this.#baseUrl = (options.baseUrl ?? process.env.CAD3MF_SF3D_URL ?? "http://127.0.0.1:8791").replace(/\/$/, "");
-    this.#timeoutMs = options.timeoutMs ?? Number(process.env.CAD3MF_SF3D_TIMEOUT_MS ?? "180000");
+    this.#baseUrl = (
+      options.baseUrl ??
+      process.env.CAD3MF_SF3D_URL ??
+      "http://127.0.0.1:8791"
+    ).replace(/\/$/, "");
+    this.#timeoutMs =
+      options.timeoutMs ?? Number(process.env.CAD3MF_SF3D_TIMEOUT_MS ?? "180000");
     this.#apiToken = options.apiToken ?? process.env.CAD3MF_SF3D_API_TOKEN ?? null;
-    if (!Number.isFinite(this.#timeoutMs) || this.#timeoutMs < 1000 || this.#timeoutMs > 900000) {
+    if (
+      !Number.isFinite(this.#timeoutMs) ||
+      this.#timeoutMs < 1000 ||
+      this.#timeoutMs > 900000
+    ) {
       throw new Error("CAD3MF_SF3D_TIMEOUT_MS must be between 1000 and 900000");
     }
   }
@@ -133,6 +154,10 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
   async generate(context: MeshProviderContext): Promise<MeshProviderOutput> {
     if (context.request.outputFormat !== "glb") {
       throw new Error("SF3D production provider currently supports only GLB output");
+    }
+    const targetDimension = context.request.targetDimensions[0];
+    if (!targetDimension) {
+      throw new Error("MESH_SCALE_REFERENCE_REQUIRED: SF3D requires a confirmed target dimension");
     }
     const selected = selectSingleView(context.views);
     const form = new FormData();
@@ -144,6 +169,9 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
     form.append("view_name", selected.view);
     form.append("quality_tier", context.request.qualityTier);
     form.append("texture_policy", context.request.texturePolicy);
+    form.append("scale_policy", "longest_extent");
+    form.append("scale_dimension_name", targetDimension.name);
+    form.append("target_extent_mm", String(targetDimension.value));
     if (context.request.targetTriangleCount != null) {
       form.append("target_triangle_count", String(context.request.targetTriangleCount));
     }
@@ -160,9 +188,13 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
       const text = (await response.text()).slice(0, 2000);
       throw new Error(`SF3D worker failed with HTTP ${response.status}: ${text}`);
     }
-    const contentType = (response.headers.get("content-type") ?? "").split(";", 1)[0]?.trim();
+    const contentType = (response.headers.get("content-type") ?? "")
+      .split(";", 1)[0]
+      ?.trim();
     if (contentType !== "model/gltf-binary") {
-      throw new Error(`SF3D worker returned unexpected content-type ${contentType || "<missing>"}`);
+      throw new Error(
+        `SF3D worker returned unexpected content-type ${contentType || "<missing>"}`,
+      );
     }
     const length = response.headers.get("content-length");
     if (length && Number(length) > MAX_OUTPUT_BYTES) {
@@ -177,7 +209,9 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
     }
     const usedView = response.headers.get("x-cad3mf-used-view");
     if (usedView !== selected.view) {
-      throw new Error("SF3D worker used-view acknowledgement does not match requested canonical view");
+      throw new Error(
+        "SF3D worker used-view acknowledgement does not match requested canonical view",
+      );
     }
     const provider = response.headers.get("x-cad3mf-provider");
     if (provider && provider !== "stable-fast-3d") {
