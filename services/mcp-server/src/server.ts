@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
+import { registerMeshM1 } from "./mesh-server.js";
 import { CadDeskRuntime } from "./runtime.js";
 import type { JsonObject } from "./types.js";
 import { registerHostVisualConceptAdoption } from "./visual-adoption-server.js";
@@ -370,6 +371,9 @@ export function createCadDeskServer(
     ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
   });
   registerHostVisualConceptAdoption(server, {
+    ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+  });
+  registerMeshM1(server, {
     ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
   });
 

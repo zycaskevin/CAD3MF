@@ -25,8 +25,19 @@
     "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
     "source_intent_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_turnaround_revision_id": {"type": ["string", "null"], "maxLength": 128},
     "asset_type": {
-      "enum": ["figurine", "character", "organic_shell", "decorative_part", "sculpted_part", "other"]
+      "enum": [
+        "figurine",
+        "character",
+        "organic_shell",
+        "vehicle_shell",
+        "hard_surface_shell",
+        "product_shell",
+        "decorative_part",
+        "sculpted_part",
+        "other"
+      ]
     },
     "units": {"const": "mm"},
     "style": {"type": ["string", "null"], "maxLength": 256},
