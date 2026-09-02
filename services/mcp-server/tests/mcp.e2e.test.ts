@@ -80,8 +80,13 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
       [
+        "analyze_visual_input",
+        "confirm_design",
         "create_design",
         "export_design",
+        "generate_concept",
+        "generate_turnaround",
+        "get_visual_job",
         "inspect_design",
         "modify_design",
         "render_design",
@@ -91,11 +96,31 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
 
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/visual-concept/0.1.0"),
+      true,
+    );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/turnaround-set/0.1.0"),
+      true,
+    );
     const schemaResult = await client.readResource({ uri: "caddesk://schema/cad-ir/0.1" });
     const schemaContent = schemaResult.contents[0];
     assert(schemaContent && "text" in schemaContent && typeof schemaContent.text === "string");
     const schema = JSON.parse(schemaContent.text) as Record<string, unknown>;
     assert.equal(schema.type, "object");
+
+    const visualSchemaResult = await client.readResource({
+      uri: "caddesk://schema/visual-concept/0.1.0",
+    });
+    const visualSchemaContent = visualSchemaResult.contents[0];
+    assert(
+      visualSchemaContent &&
+        "text" in visualSchemaContent &&
+        typeof visualSchemaContent.text === "string",
+    );
+    const visualSchema = JSON.parse(visualSchemaContent.text) as Record<string, unknown>;
+    assert.equal(visualSchema.type, "object");
 
     const traversalAttempt = await client.callTool({
       name: "create_design",
