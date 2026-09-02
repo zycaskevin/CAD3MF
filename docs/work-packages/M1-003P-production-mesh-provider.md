@@ -13,23 +13,29 @@ Replace the deterministic CI-only mesh provider with at least one real image-to-
 
 M1-003P must not change canonical product semantics merely to fit a provider.
 
-## Provider decision — first integration
+## Provider decision
 
-The first production adapter targets **Microsoft TRELLIS.2**.
+### Primary production-path adapter — Stable Fast 3D
+
+The first product-oriented adapter targets **Stability AI Stable Fast 3D (SF3D)**.
 
 Reasons:
 
-- upstream repository code is MIT licensed;
-- official inference path exports textured PBR GLB;
-- provider is designed for high-fidelity image-to-3D and complex topology;
-- Linux + NVIDIA GPU is a good fit for the CAD3MF worker architecture;
-- the provider can remain fully local when deployed on a compatible GPU worker.
+- direct single-image -> textured UV-unwrapped GLB output;
+- roughly 6 GB VRAM for a single image with the documented default path;
+- Linux/CUDA deployment fits the CAD3MF mesh-worker architecture;
+- Stability AI Community License explicitly provides a limited commercial path subject to its registration/revenue terms;
+- materially simpler hardware target than the 24 GB minimum documented for TRELLIS.2.
 
-Important limitation: the public TRELLIS.2 image-to-3D pipeline is single-image conditioned. CAD3MF therefore treats it as a **single-view provider behind a multi-view canonical pipeline**. The adapter selects one canonical turnaround view according to explicit policy and records exactly which input digest was consumed. It must not claim all six turnaround views were used.
+Important limitation: SF3D is single-image conditioned. CAD3MF therefore keeps the canonical multi-view Turnaround Set, but the adapter selects one canonical view and records exactly which view digest it consumed.
 
-## Hunyuan benchmark position
+### Research / quality benchmark — TRELLIS.2
 
-Tencent Hunyuan3D remains a second candidate, particularly for lower-memory shape generation and future multi-view evaluation. It is not the default production provider for M1-003P because the current 2.1 license carries territory/commercial obligations and the publicly available 2.1 multi-view path has unresolved usability concerns.
+Microsoft TRELLIS.2 remains a high-quality benchmark candidate because it exports high-fidelity PBR GLB and handles complex topology. However, although TRELLIS.2 itself is MIT licensed, its official stack depends on NVIDIA `nvdiffrast` and `nvdiffrec`, whose published licenses restrict use to non-commercial research/evaluation. CAD3MF must therefore not present the current upstream TRELLIS.2 stack as the default commercial production path without separate licensing review.
+
+### Secondary candidate — Hunyuan3D
+
+Tencent Hunyuan3D remains a benchmark candidate, particularly for lower-memory shape generation and future multi-view evaluation. Its community license has territory/commercial obligations, and Hunyuan3D 2.1's public multi-view path has unresolved usability concerns. Provider-specific terms remain outside canonical CAD3MF contracts.
 
 ## Runtime boundary
 
@@ -41,60 +47,87 @@ MeshProvider
       |
       +-- deterministic-mesh-ci (CI only)
       |
-      +-- trellis2-http (production adapter)
-                  |
-                  v
-          mesh-worker / TRELLIS.2
-                  |
-                  v
-               GLB bytes
+      +-- sf3d-http (first production-path adapter)
+      |           |
+      |           v
+      |      mesh-worker / SF3D
+      |           |
+      |           v
+      |        GLB bytes
+      |
+      +-- trellis2-http (research/quality adapter target)
 ```
 
-The Node MCP process does not import CUDA/PyTorch. Heavy model execution belongs in a separate GPU worker.
+The Node MCP process never imports CUDA/PyTorch. Heavy inference belongs in a separate GPU worker.
 
-## TRELLIS.2 worker contract
+## Single-view selection policy
 
-The adapter sends one canonical image as multipart/form-data to a worker endpoint and expects:
-
-- GLB bytes;
-- provider/model/version metadata in response headers;
-- optional topology/mesh statistics in response headers or a sidecar JSON endpoint.
-
-The worker must validate image media type and size, isolate temporary files, and never accept arbitrary filesystem paths from callers.
-
-## View selection
-
-Initial policy:
+For SF3D and other single-view providers:
 
 1. `three_quarter_front` if available;
 2. `front`;
 3. first available canonical view.
 
-The selected view name and SHA-256 are recorded in provider output metadata and become the only provider input digests in Mesh Artifact / Asset-IR provenance.
+The selected view name and SHA-256 are returned by the provider adapter and become the provider-consumed provenance. CAD3MF must not claim that all turnaround views were consumed.
+
+## SF3D worker contract
+
+`POST /v1/generate`
+
+Request: `multipart/form-data`
+
+- `image`: PNG/JPEG/WebP bytes selected from the canonical turnaround;
+- `view_name`: canonical camera role;
+- `quality_tier`: preview / standard / high;
+- `target_triangle_count`: optional;
+- `texture_policy`: none / vertex_color / pbr.
+
+Response:
+
+- body: binary GLB (`model/gltf-binary`);
+- `x-cad3mf-mesh-stats`: base64url JSON containing vertex count, triangle count, bounding box and topology observations;
+- `x-cad3mf-used-view`: canonical view name;
+- `x-cad3mf-provider`: `stable-fast-3d`;
+- `x-cad3mf-model`: `stabilityai/stable-fast-3d`.
+
+The worker must bound input/output sizes, reject path-based inputs, use isolated temporary files, and never silently substitute deterministic output.
 
 ## Production environment
 
-`CAD3MF_MESH_PROVIDER=trellis2-http`
-
-`CAD3MF_TRELLIS2_URL=http://127.0.0.1:8791`
+```text
+CAD3MF_MESH_PROVIDER=sf3d-http
+CAD3MF_SF3D_URL=http://127.0.0.1:8791
+```
 
 Optional:
 
-- `CAD3MF_TRELLIS2_TIMEOUT_MS`
-- `CAD3MF_TRELLIS2_API_TOKEN`
+```text
+CAD3MF_SF3D_TIMEOUT_MS=180000
+CAD3MF_SF3D_API_TOKEN=...
+```
 
-Default provider remains deterministic in CI unless explicitly selected.
+CI leaves `CAD3MF_MESH_PROVIDER` unset and therefore keeps the deterministic provider.
 
-## Benchmark acceptance
+## Benchmark execution status
+
+The repository integration can be completed in ChatGPT/GitHub, but a real inference requires a reachable GPU runtime plus accepted/gated model weights.
+
+Current execution attempts from this development session:
+
+- Hugging Face Jobs: blocked with HTTP 402 Payment Required before job creation;
+- local execution container: no external DNS/network and no usable GPU;
+- no installed third-party 3D-generation plugin is available in the current ChatGPT environment.
+
+Therefore the first real figurine/tank inference must run on a connected GPU worker such as the user's GB10 or another authorized GPU host. Until one real output is captured, M1-003P status is **integration-ready**, not benchmark-complete.
+
+## Acceptance criteria
 
 M1-003P is complete only after:
 
-- TRELLIS.2 adapter compiles and passes contract tests;
-- worker health contract is documented;
-- one figurine image and one tank image have actually completed real model inference;
+- SF3D adapter compiles and passes contract tests;
+- provider selection is explicit and never silently falls back;
+- worker health and generate contracts are implemented;
+- provider output records exactly which turnaround view was consumed;
+- one figurine and one tank reference have actually completed real model inference;
 - resulting GLB files can be parsed and basic mesh stats recorded;
-- input digest provenance matches the view actually consumed;
-- failures do not silently fall back to deterministic mesh;
 - M0/M1 regression remains green.
-
-A successful adapter implementation without a real inference run is **integration-ready**, not benchmark-complete.
