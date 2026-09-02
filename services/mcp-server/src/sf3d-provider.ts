@@ -43,6 +43,12 @@ function extension(mediaType: MeshInputView["mediaType"]): string {
   return "webp";
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function requireFiniteNumber(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`SF3D worker returned invalid ${label}`);
@@ -163,7 +169,7 @@ export class Sf3dHttpMeshProvider implements MeshProvider {
     const form = new FormData();
     form.append(
       "image",
-      new Blob([selected.bytes], { type: selected.mediaType }),
+      new Blob([ownedArrayBuffer(selected.bytes)], { type: selected.mediaType }),
       `turnaround-${selected.view}.${extension(selected.mediaType)}`,
     );
     form.append("view_name", selected.view);
