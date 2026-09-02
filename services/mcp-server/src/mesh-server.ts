@@ -31,7 +31,10 @@ function failure(error: unknown) {
   return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] };
 }
 
-export function registerMeshM1(server: McpServer, options: { runtime?: MeshRuntime } = {}): MeshRuntime {
+export function registerMeshM1(
+  server: McpServer,
+  options: { publicBaseUrl?: string; runtime?: MeshRuntime } = {},
+): MeshRuntime {
   const runtime = options.runtime ?? new MeshRuntime();
 
   for (const [name, uri, path, title] of [
