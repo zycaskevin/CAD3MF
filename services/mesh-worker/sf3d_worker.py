@@ -162,7 +162,9 @@ async def generate(
     }:
         raise HTTPException(status_code=400, detail="invalid canonical view_name")
     if texture_policy != "pbr":
-        raise HTTPException(status_code=400, detail="SF3D worker currently requires texture_policy=pbr")
+        raise HTTPException(
+            status_code=400, detail="SF3D worker currently requires texture_policy=pbr"
+        )
     if scale_policy != "longest_extent":
         raise HTTPException(status_code=400, detail="unsupported scale_policy")
     if not scale_dimension_name or len(scale_dimension_name) > 128:
