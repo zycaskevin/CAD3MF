@@ -27,6 +27,8 @@ export interface VisualSourceAsset {
   sha256: string;
   mediaType: VisualMediaType;
   role: VisualSourceRole;
+  /** Internal provider input only. Never serialized into canonical Design Intent. */
+  bytes?: Uint8Array;
 }
 
 export interface VisualDimension {
