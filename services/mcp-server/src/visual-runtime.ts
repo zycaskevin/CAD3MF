@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
@@ -56,6 +56,10 @@ function jsonDigest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function bytesDigest(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function imageExtension(mediaType: VisualMediaType): string {
   if (mediaType === "image/png") return "png";
   if (mediaType === "image/jpeg") return "jpg";
@@ -101,26 +105,6 @@ function designPromptFromIntent(intent: Record<string, unknown>): string {
   throw new Error("design intent has no requested_form observation");
 }
 
-function providerContextFromIntent(intent: Record<string, unknown>): VisualProviderContext {
-  const sourceAssets = intent.source_assets;
-  const dimensions = intent.known_dimensions;
-  if (!Array.isArray(sourceAssets) || !Array.isArray(dimensions)) {
-    throw new Error("design intent is missing canonical visual inputs");
-  }
-  const requestedFunctions = Array.isArray(intent.requested_functions)
-    ? intent.requested_functions.map((value) => String(value))
-    : [];
-  return {
-    projectId: requireProjectId(String(intent.project_id)),
-    productKind: String(intent.product_kind) as VisualProductKind,
-    designPrompt: designPromptFromIntent(intent),
-    style: typeof intent.style === "string" ? intent.style : null,
-    requestedFunctions,
-    sourceAssets: sourceAssets.map(sourceAssetFromCanonical),
-    knownDimensions: dimensions.map(dimensionFromCanonical),
-  };
-}
-
 function logicalDocumentArtifact(
   document: Record<string, unknown>,
   kind: string,
@@ -133,6 +117,83 @@ function logicalDocumentArtifact(
     media_type: "application/json",
     revision_ref: revisionRef,
   };
+}
+
+function readStoredAsset(
+  store: VisualStore,
+  projectId: string,
+  asset: VisualSourceAsset,
+  required: boolean,
+): VisualSourceAsset {
+  let stored: StoredVisualArtifact;
+  try {
+    stored = store.getArtifact(projectId, asset.assetId);
+  } catch (error) {
+    if (!required && error instanceof Error && error.message.startsWith("unknown visual artifact")) {
+      return asset;
+    }
+    throw error;
+  }
+  if (stored.sha256 !== asset.sha256 || stored.mediaType !== asset.mediaType) {
+    throw new Error(`stored visual artifact metadata mismatch for ${asset.assetId}`);
+  }
+  const bytes = new Uint8Array(readFileSync(stored.path));
+  if (bytesDigest(bytes) !== stored.sha256) {
+    throw new Error(`stored visual artifact checksum mismatch for ${asset.assetId}`);
+  }
+  return { ...asset, bytes };
+}
+
+function providerContextFromIntent(
+  intent: Record<string, unknown>,
+  store: VisualStore,
+): VisualProviderContext {
+  const sourceAssets = intent.source_assets;
+  const dimensions = intent.known_dimensions;
+  if (!Array.isArray(sourceAssets) || !Array.isArray(dimensions)) {
+    throw new Error("design intent is missing canonical visual inputs");
+  }
+  const requestedFunctions = Array.isArray(intent.requested_functions)
+    ? intent.requested_functions.map((value) => String(value))
+    : [];
+  const projectId = requireProjectId(String(intent.project_id));
+  return {
+    projectId,
+    productKind: String(intent.product_kind) as VisualProductKind,
+    designPrompt: designPromptFromIntent(intent),
+    style: typeof intent.style === "string" ? intent.style : null,
+    requestedFunctions,
+    sourceAssets: sourceAssets
+      .map(sourceAssetFromCanonical)
+      .map((asset) => readStoredAsset(store, projectId, asset, false)),
+    knownDimensions: dimensions.map(dimensionFromCanonical),
+  };
+}
+
+function conceptImagesFromConcept(
+  concept: Record<string, unknown>,
+  store: VisualStore,
+): VisualSourceAsset[] {
+  const projectId = requireProjectId(String(concept.project_id));
+  const artifacts = concept.artifacts;
+  if (!Array.isArray(artifacts) || artifacts.length === 0) {
+    throw new Error("visual concept has no image artifacts");
+  }
+  return artifacts.map((value) => {
+    if (typeof value !== "object" || value === null) throw new Error("invalid concept artifact");
+    const artifact = value as Record<string, unknown>;
+    const mediaType = String(artifact.media_type);
+    if (mediaType !== "image/png" && mediaType !== "image/jpeg" && mediaType !== "image/webp") {
+      throw new Error(`unsupported concept image media type ${mediaType}`);
+    }
+    const source: VisualSourceAsset = {
+      assetId: String(artifact.artifact_id),
+      sha256: String(artifact.sha256),
+      mediaType,
+      role: "concept",
+    };
+    return readStoredAsset(store, projectId, source, true);
+  });
 }
 
 export class VisualRuntime {
@@ -159,6 +220,9 @@ export class VisualRuntime {
     }
     for (const asset of input.sourceAssets) {
       if (!SHA256.test(asset.sha256)) throw new Error(`invalid SHA-256 for ${asset.assetId}`);
+      if (asset.bytes && bytesDigest(asset.bytes) !== asset.sha256) {
+        throw new Error(`source image checksum mismatch for ${asset.assetId}`);
+      }
     }
     for (const dimension of input.knownDimensions ?? []) {
       if (!Number.isFinite(dimension.value) || dimension.value <= 0) {
@@ -167,6 +231,10 @@ export class VisualRuntime {
     }
 
     const now = new Date().toISOString();
+    for (const asset of input.sourceAssets) {
+      if (asset.bytes) this.#storeSourceAsset(projectId, asset, now);
+    }
+
     let job = createM1Job({
       jobId: randomUUID(),
       traceId: randomUUID(),
@@ -268,7 +336,7 @@ export class VisualRuntime {
     const projectId = requireProjectId(projectIdInput);
     const intent = this.#store.getDocument(projectId, "design_intent", intentRevisionId);
     if (intent.status === "rejected") throw new Error("cannot generate concept from rejected design intent");
-    const context = providerContextFromIntent(intent);
+    const context = providerContextFromIntent(intent, this.#store);
     const now = new Date().toISOString();
     let job = createM1Job({
       jobId: randomUUID(),
@@ -453,7 +521,7 @@ export class VisualRuntime {
       "design_intent",
       String(concept.source_intent_revision_id),
     );
-    const context = providerContextFromIntent(intent);
+    const context = providerContextFromIntent(intent, this.#store);
     const now = new Date().toISOString();
     let job = createM1Job({
       jobId: randomUUID(),
@@ -475,6 +543,7 @@ export class VisualRuntime {
       const generated = await this.#provider.generateTurnaround({
         ...context,
         visualConcept: concept,
+        conceptImages: conceptImagesFromConcept(concept, this.#store),
         coveragePolicy,
       });
       this.#validateTurnaroundCoverage(
@@ -572,6 +641,41 @@ export class VisualRuntime {
     } catch {
       return null;
     }
+  }
+
+  #storeSourceAsset(projectId: string, asset: VisualSourceAsset, createdAt: string): void {
+    if (!asset.bytes) return;
+    const computed = bytesDigest(asset.bytes);
+    if (computed !== asset.sha256) throw new Error(`source image checksum mismatch for ${asset.assetId}`);
+
+    try {
+      const existing = this.#store.getArtifact(projectId, asset.assetId);
+      if (
+        existing.sha256 !== asset.sha256 ||
+        existing.mediaType !== asset.mediaType ||
+        bytesDigest(new Uint8Array(readFileSync(existing.path))) !== asset.sha256
+      ) {
+        throw new Error(`existing source artifact mismatch for ${asset.assetId}`);
+      }
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("unknown visual artifact")) {
+        throw error;
+      }
+    }
+
+    const directory = join(this.#dataDir, "visual-artifacts", projectId);
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, `source-${randomUUID()}.${imageExtension(asset.mediaType)}`);
+    writeFileSync(path, Buffer.from(asset.bytes), { flag: "wx" });
+    this.#store.saveArtifact({
+      projectId,
+      artifactId: asset.assetId,
+      path,
+      sha256: asset.sha256,
+      mediaType: asset.mediaType,
+      createdAt,
+    });
   }
 
   #storeImage(
