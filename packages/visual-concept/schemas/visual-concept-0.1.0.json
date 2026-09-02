@@ -82,11 +82,10 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["origin_kind", "provider", "model", "job_id", "input_artifact_sha256"],
+      "required": ["provider", "model", "job_id", "input_artifact_sha256"],
       "properties": {
-        "origin_kind": {"enum": ["provider_generated", "host_provided"]},
-        "provider": {"type": ["string", "null"], "maxLength": 128},
-        "model": {"type": ["string", "null"], "maxLength": 256},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
         "job_id": {"type": "string", "minLength": 1, "maxLength": 128},
         "input_artifact_sha256": {
           "type": "array",
