@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
@@ -16,6 +17,7 @@ export interface ChatGptFileParam {
 
 export interface DownloadedVisualFile {
   bytes: Uint8Array;
+  sha256: string;
   mediaType: VisualMediaType;
   fileId: string;
   fileName: string | null;
@@ -178,6 +180,7 @@ export async function downloadChatGptVisualFile(
     }
     return {
       bytes,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
       mediaType,
       fileId: input.fileId,
       fileName: input.fileName ?? null,
