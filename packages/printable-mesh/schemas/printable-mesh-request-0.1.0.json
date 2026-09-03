@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/printable-mesh-request/0.1.0",
+  "title": "CAD3MF Printable Mesh Request 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "project_id",
+    "source_mesh_artifact_id",
+    "source_sha256",
+    "operation",
+    "validation_requirements",
+    "repair_policy",
+    "metric_scale_tolerance_mm",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_mesh_artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "operation": {"enum": ["diagnose", "diagnose_and_repair"]},
+    "validation_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "watertight",
+          "closed_boundary",
+          "manifold_edges",
+          "winding_consistent",
+          "self_intersections",
+          "minimum_thickness",
+          "minimum_feature"
+        ]
+      }
+    },
+    "minimum_thickness_mm": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "maximum": 1000
+    },
+    "minimum_feature_mm": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "maximum": 1000
+    },
+    "repair_policy": {"$ref": "#/$defs/repairPolicy"},
+    "metric_scale_tolerance_mm": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "status": {"enum": ["submitted", "running", "completed", "rejected", "failed"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "repairPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserve_metric_scale",
+        "merge_vertices",
+        "remove_duplicate_faces",
+        "remove_degenerate_faces",
+        "remove_unreferenced_vertices",
+        "fix_normals",
+        "fill_small_holes"
+      ],
+      "properties": {
+        "preserve_metric_scale": {"const": true},
+        "merge_vertices": {"type": "boolean"},
+        "remove_duplicate_faces": {"type": "boolean"},
+        "remove_degenerate_faces": {"type": "boolean"},
+        "remove_unreferenced_vertices": {"type": "boolean"},
+        "fix_normals": {"type": "boolean"},
+        "fill_small_holes": {"type": "boolean"}
+      }
+    }
+  }
+}
