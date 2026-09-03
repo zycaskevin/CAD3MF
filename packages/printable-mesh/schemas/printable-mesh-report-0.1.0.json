@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/printable-mesh-report/0.1.0",
+  "title": "CAD3MF Printable Mesh Report 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_id",
+    "project_id",
+    "source_mesh_artifact_id",
+    "source_sha256",
+    "input_metrics",
+    "output_metrics",
+    "checks",
+    "repair_operations",
+    "metric_invariant",
+    "appearance_rebake_required",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "report_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_mesh_artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "output_sha256": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "input_metrics": {"$ref": "#/$defs/meshMetrics"},
+    "output_metrics": {"oneOf": [{"$ref": "#/$defs/meshMetrics"}, {"type": "null"}]},
+    "checks": {"$ref": "#/$defs/checks"},
+    "repair_operations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/repairOperation"}
+    },
+    "metric_invariant": {"$ref": "#/$defs/metricInvariant"},
+    "appearance_rebake_required": {"type": "boolean"},
+    "status": {
+      "enum": [
+        "valid_no_repair",
+        "repaired_topology_valid",
+        "needs_robust_repair",
+        "rejected",
+        "error"
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {"type": "string", "maxLength": 1024}
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "vec3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    },
+    "boundingBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "extents"],
+      "properties": {
+        "min": {"$ref": "#/$defs/vec3"},
+        "max": {"$ref": "#/$defs/vec3"},
+        "extents": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "meshMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vertex_count",
+        "triangle_count",
+        "component_count",
+        "boundary_edge_count",
+        "nonmanifold_edge_count",
+        "duplicate_face_count",
+        "degenerate_face_count",
+        "unreferenced_vertex_count",
+        "watertight",
+        "winding_consistent",
+        "bounding_box_mm"
+      ],
+      "properties": {
+        "vertex_count": {"type": "integer", "minimum": 0},
+        "triangle_count": {"type": "integer", "minimum": 0},
+        "component_count": {"type": "integer", "minimum": 0},
+        "boundary_edge_count": {"type": "integer", "minimum": 0},
+        "nonmanifold_edge_count": {"type": "integer", "minimum": 0},
+        "duplicate_face_count": {"type": "integer", "minimum": 0},
+        "degenerate_face_count": {"type": "integer", "minimum": 0},
+        "unreferenced_vertex_count": {"type": "integer", "minimum": 0},
+        "watertight": {"type": "boolean"},
+        "winding_consistent": {"type": "boolean"},
+        "bounding_box_mm": {"$ref": "#/$defs/boundingBox"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "required", "value"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "unknown", "not_run"]},
+        "required": {"type": "boolean"},
+        "value": {"type": ["boolean", "number", "integer", "null"]},
+        "unit": {"enum": ["mm", "count", "boolean", "none"]},
+        "notes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "maxLength": 512}
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "watertight",
+        "closed_boundary",
+        "manifold_edges",
+        "winding_consistent",
+        "self_intersections",
+        "minimum_thickness",
+        "minimum_feature"
+      ],
+      "properties": {
+        "watertight": {"$ref": "#/$defs/check"},
+        "closed_boundary": {"$ref": "#/$defs/check"},
+        "manifold_edges": {"$ref": "#/$defs/check"},
+        "winding_consistent": {"$ref": "#/$defs/check"},
+        "self_intersections": {"$ref": "#/$defs/check"},
+        "minimum_thickness": {"$ref": "#/$defs/check"},
+        "minimum_feature": {"$ref": "#/$defs/check"}
+      }
+    },
+    "repairOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "status", "changed_count", "changes_topology"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "remove_duplicate_faces",
+            "remove_degenerate_faces",
+            "remove_unreferenced_vertices",
+            "merge_vertices",
+            "fix_normals",
+            "fill_small_holes"
+          ]
+        },
+        "status": {"enum": ["applied", "skipped", "no_change", "failed"]},
+        "changed_count": {"type": ["integer", "null"], "minimum": 0},
+        "changes_topology": {"type": "boolean"},
+        "note": {"type": ["string", "null"], "maxLength": 512}
+      }
+    },
+    "metricInvariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserved",
+        "tolerance_mm",
+        "max_extent_drift_mm",
+        "non_uniform_scale_applied"
+      ],
+      "properties": {
+        "preserved": {"type": "boolean"},
+        "tolerance_mm": {"type": "number", "minimum": 0},
+        "max_extent_drift_mm": {"type": "number", "minimum": 0},
+        "non_uniform_scale_applied": {"const": false}
+      }
+    }
+  }
+}
