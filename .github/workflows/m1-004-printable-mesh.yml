@@ -1,0 +1,36 @@
+name: m1-004-printable-mesh
+
+on:
+  pull_request:
+    paths:
+      - "packages/printable-mesh/**"
+      - "services/mesh-worker/printable_mesh.py"
+      - "services/mesh-worker/requirements-worker.txt"
+      - "tests/test_m1_004_printable_mesh.py"
+      - ".github/workflows/m1-004-printable-mesh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  printable-mesh-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/mesh-worker/requirements-worker.txt
+
+      - name: Install production-matched geometry runtime
+        run: |
+          python -m pip install \
+            numpy==1.26.4 \
+            trimesh==4.4.1 \
+            pytest==8.4.2 \
+            jsonschema==4.26.0
+
+      - name: Run M1-004 contract and repair regressions
+        run: pytest -q tests/test_m1_004_printable_mesh.py
