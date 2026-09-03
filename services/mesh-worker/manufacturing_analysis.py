@@ -7,7 +7,6 @@ from typing import Any, Protocol
 
 import numpy as np
 import trimesh
-
 from printable_mesh import diagnose_mesh
 
 
@@ -420,7 +419,8 @@ class FclSelfIntersectionAnalyzer:
             "intersecting_pair_count": intersection_count,
             "exhaustive": True,
             "notes": [
-                "All overlapping AABB face pairs are tested. Topologically adjacent collisions are accepted only when their geometric intersection is confined to the shared vertex or edge."
+                "All overlapping AABB face pairs are tested.",
+                "Adjacent collisions pass only when confined to the shared vertex or edge.",
             ],
         }
 
@@ -554,7 +554,8 @@ class PcuRayMeasurementAnalyzer:
             "exhaustive": thickness_exhaustive,
             "method_scope": "inward_face_normal_chord",
             "notes": [
-                "Observed local material chord along inward facet normals; no slicer profile is used."
+                "Observed local material chord along inward facet normals.",
+                "No slicer profile is used.",
             ],
         }
 
@@ -598,7 +599,7 @@ class PcuRayMeasurementAnalyzer:
             "exhaustive": feature_exhaustive,
             "method_scope": "outward_opposing_surface_clearance",
             "notes": [
-                "Negative-feature clearance is the first opposing surface reached along outward facet normals.",
+                "Negative-feature clearance uses the first opposing outward-normal hit.",
                 "Positive thin members are governed by the minimum-thickness check.",
             ],
         }
@@ -716,7 +717,7 @@ def analyze_manufacturing_geometry(
     ray_required = bool({"minimum_thickness", "minimum_feature"} & required_checks)
     topology_ready = all(prerequisites.values())
     if ray_required and not topology_ready:
-        note = "Thickness/feature ray analysis requires watertight, manifold, consistent-winding geometry."
+        note = "Thickness/feature analysis requires valid closed-manifold topology."
         if "minimum_thickness" in required_checks:
             thickness = _unknown_ray_measurement(
                 threshold_mm=minimum_thickness_mm,
@@ -800,7 +801,7 @@ def analyze_manufacturing_geometry(
             feature,
         ),
         "notes": [
-            "M1-004-003 is geometry-only analysis; printer/slicer policy remains outside this report."
+            "M1-004-003 is geometry-only; printer/slicer policy is outside this report."
         ],
         "created_at": created_at,
     }
