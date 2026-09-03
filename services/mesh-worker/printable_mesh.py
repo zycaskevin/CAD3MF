@@ -46,7 +46,9 @@ def _edge_incidence(faces: np.ndarray) -> tuple[int, int]:
     edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
     edges = np.sort(edges, axis=1)
     _unique, counts = np.unique(edges, axis=0, return_counts=True)
-    return int(np.count_nonzero(counts == 1)), int(np.count_nonzero(counts > 2))
+    boundary = int(np.count_nonzero(counts == 1))
+    nonmanifold = int(np.count_nonzero(counts > 2))
+    return boundary, nonmanifold
 
 
 def _duplicate_face_count(faces: np.ndarray) -> int:
@@ -60,7 +62,10 @@ def _degenerate_face_count(mesh: trimesh.Trimesh, tolerance: float = 1e-12) -> i
     if len(mesh.faces) == 0:
         return 0
     triangles = np.asarray(mesh.vertices)[np.asarray(mesh.faces)]
-    cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    cross = np.cross(
+        triangles[:, 1] - triangles[:, 0],
+        triangles[:, 2] - triangles[:, 0],
+    )
     double_area = np.linalg.norm(cross, axis=1)
     return int(np.count_nonzero(double_area <= tolerance))
 
@@ -95,12 +100,17 @@ def diagnose_mesh(mesh: trimesh.Trimesh) -> dict[str, Any]:
     }
 
 
-def _check(status: str, required: bool, value: bool | int | float | None) -> dict[str, Any]:
+def _check(
+    status: str,
+    required: bool,
+    value: bool | int | float | None,
+    unit: str,
+) -> dict[str, Any]:
     return {
         "status": status,
         "required": required,
         "value": value,
-        "unit": "boolean" if isinstance(value, bool) else "count" if isinstance(value, int) else "none",
+        "unit": unit,
         "notes": [],
     }
 
@@ -118,25 +128,30 @@ def build_checks(
             "pass" if metrics["watertight"] else "fail",
             "watertight" in required,
             metrics["watertight"],
+            "boolean",
         ),
         "closed_boundary": _check(
             "pass" if metrics["boundary_edge_count"] == 0 else "fail",
             "closed_boundary" in required,
             metrics["boundary_edge_count"],
+            "count",
         ),
         "manifold_edges": _check(
             "pass" if metrics["nonmanifold_edge_count"] == 0 else "fail",
             "manifold_edges" in required,
             metrics["nonmanifold_edge_count"],
+            "count",
         ),
         "winding_consistent": _check(
             "pass" if metrics["winding_consistent"] else "fail",
             "winding_consistent" in required,
             metrics["winding_consistent"],
+            "boolean",
         ),
     }
     for name in ("self_intersections", "minimum_thickness", "minimum_feature"):
-        checks[name] = _check("not_run", name in required, None)
+        unit = "mm" if name != "self_intersections" else "boolean"
+        checks[name] = _check("not_run", name in required, None, unit)
     return checks
 
 
@@ -183,7 +198,8 @@ def _remove_degenerate_faces(mesh: trimesh.Trimesh) -> int:
 
 def _extents(metrics: dict[str, Any]) -> np.ndarray:
     extents = metrics["bounding_box_mm"]["extents"]
-    return np.asarray([extents["x"], extents["y"], extents["z"]], dtype=np.float64)
+    values = [extents["x"], extents["y"], extents["z"]]
+    return np.asarray(values, dtype=np.float64)
 
 
 def repair_topology(
@@ -218,7 +234,6 @@ def repair_topology(
     required = tuple(required_checks)
     work = mesh.copy()
     input_metrics = diagnose_mesh(work)
-    input_checks = build_checks(input_metrics, required)
     operations: list[dict[str, Any]] = []
 
     if policy["remove_duplicate_faces"]:
@@ -282,9 +297,8 @@ def repair_topology(
         trimesh.repair.fix_normals(work, multibody=True)
         after = bool(work.is_winding_consistent)
         changed = int(before != after)
-        operations.append(
-            _operation("fix_normals", "applied" if changed else "no_change", changed, False)
-        )
+        status = "applied" if changed else "no_change"
+        operations.append(_operation("fix_normals", status, changed, False))
     else:
         operations.append(_operation("fix_normals", "skipped", 0, False))
 
@@ -307,9 +321,8 @@ def repair_topology(
                 )
             )
         except Exception as exc:
-            operations.append(
-                _operation("fill_small_holes", "failed", None, True, f"{type(exc).__name__}: {exc}")
-            )
+            note = f"{type(exc).__name__}: {exc}"
+            operations.append(_operation("fill_small_holes", "failed", None, True, note))
     else:
         operations.append(_operation("fill_small_holes", "skipped", 0, True))
 
@@ -320,24 +333,29 @@ def repair_topology(
     max_drift = float(np.max(np.abs(output_extents - input_extents)))
     metric_preserved = max_drift <= metric_scale_tolerance_mm
 
-    topology_valid = all(output_checks[name]["status"] == "pass" for name in TOPOLOGY_CHECKS)
+    topology_valid = all(
+        output_checks[name]["status"] == "pass" for name in TOPOLOGY_CHECKS
+    )
     topology_changed = any(
         op["changes_topology"] and op["status"] == "applied" for op in operations
     )
-    if not metric_preserved:
-        status = "rejected"
-    elif topology_valid and topology_changed:
-        status = "repaired_topology_valid"
-    elif topology_valid:
-        status = "valid_no_repair"
-    else:
-        status = "needs_robust_repair"
-
     unresolved_required = [
         name
         for name, check in output_checks.items()
         if check["required"] and check["status"] != "pass"
     ]
+
+    if not metric_preserved:
+        status = "rejected"
+    elif not topology_valid:
+        status = "needs_robust_repair"
+    elif unresolved_required:
+        status = "needs_additional_validation"
+    elif topology_changed:
+        status = "repaired_topology_valid"
+    else:
+        status = "valid_no_repair"
+
     notes = []
     if unresolved_required:
         notes.append(f"Required checks not PASS: {', '.join(unresolved_required)}")
