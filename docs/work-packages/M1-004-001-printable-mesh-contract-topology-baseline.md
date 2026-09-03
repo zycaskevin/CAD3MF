@@ -1,6 +1,6 @@
 # M1-004-001 — Printable Mesh Contract & Topology Repair Baseline
 
-Status: In Development  
+Status: COMPLETE  
 Milestone: CAD3MF M1  
 Date: 2026-09-03  
 Base: M1-003P COMPLETE / real SF3D Figurine + Tank GLBs on NVIDIA GB10
@@ -9,7 +9,7 @@ Base: M1-003P COMPLETE / real SF3D Figurine + Tank GLBs on NVIDIA GB10
 
 Create the first canonical boundary between **generated 3D mesh** and **manufacturing-ready geometry**.
 
-M1-003P proves CAD3MF can produce real textured GLB meshes from visual input. Both first physical benchmark meshes were observed as `watertight=false`, so M1-004 must make geometry quality explicit and repairable rather than treating model generation as printability.
+M1-003P proves CAD3MF can produce real textured GLB meshes from visual input. Both first physical benchmark meshes were observed as `watertight=false`, so M1-004 makes geometry quality explicit and repairable rather than treating model generation as printability.
 
 ## Canonical pipeline
 
@@ -56,26 +56,28 @@ The canonical geometry checks are:
 
 M1-004-001 executes checks 1–4.
 
-Checks 5–7 are already represented in the contract but remain `not_run` until later M1-004 work packages provide authoritative implementations. If any such check is required by the request, the report status must be `needs_additional_validation`; it must not claim geometric validity.
+Checks 5–7 are already represented in the contract but remain `not_run` until later M1-004 work packages provide authoritative implementations. If any such check is required by the request, the report status is `needs_additional_validation`; it cannot claim geometric validity.
 
 ## Safe repair baseline
 
-M1-004-001 may apply only auditable local operations:
+M1-004-001 applies only auditable local operations:
 
 - remove duplicate faces;
 - remove degenerate faces;
 - remove unreferenced vertices;
 - merge coincident vertices;
-- fix winding / normals;
-- fill small triangle or quad holes when the local repair backend can do so safely.
+- repair face winding and orient closed components deterministically;
+- fill only unambiguous triangle or quad boundary loops.
+
+The core topology path is implemented without hidden `networkx` or `scipy` graph-engine requirements. Face components, adjacency, winding propagation, and small boundary loops are handled directly by CAD3MF using deterministic NumPy/Python logic.
 
 This baseline deliberately does **not** perform voxel remeshing, aggressive decimation, non-uniform scaling, semantic part deletion, component pruning, shape completion, or AI hallucination.
 
-Meshes that remain open or non-manifold after safe repair become `needs_robust_repair`.
+Meshes that remain open or non-manifold after safe repair become `needs_robust_repair`. Boundary loops larger than four vertices are deliberately not guessed or triangulated in M1-004-001.
 
 ## Metric-scale invariant
 
-M1-003P established trusted millimeter scaling before M1-004. Repair must therefore preserve metric dimensions.
+M1-003P established trusted millimeter scaling before M1-004. Repair therefore preserves metric dimensions.
 
 Rules:
 
@@ -89,13 +91,16 @@ Rules:
 
 SF3D outputs PBR/UV data. Topology repair can invalidate UV correspondence even when geometry is repaired correctly.
 
-Therefore every report contains `appearance_rebake_required`.
+Every report therefore contains `appearance_rebake_required`.
 
-If a topology-changing repair is applied, M1-004-001 marks appearance rebaking as required. It does not silently claim that the original texture remains authoritative.
+- topology-changing repair -> `appearance_rebake_required=true`;
+- winding-only correction -> geometry is repaired but connectivity is unchanged, so rebake is not forced by this baseline.
+
+M1-004-001 never silently claims that original texture correspondence remains authoritative after topology changes.
 
 ## Manufacturing boundary
 
-Printable Mesh owns **geometry validity**.
+Printable Mesh owns **geometry diagnostics and repair**.
 
 It does not own:
 
@@ -124,19 +129,32 @@ Regression:
 
 - `tests/test_m1_004_printable_mesh.py`
 
-## Acceptance criteria
+Production-matched CI:
 
-M1-004-001 is COMPLETE only when:
+- `.github/workflows/m1-004-printable-mesh.yml`
+- geometry runtime: `numpy==1.26.4`, `trimesh==4.4.1`
 
-- both schemas validate under JSON Schema Draft 2020-12;
-- contracts are closed to provider-specific or shortcut `printable` fields;
-- a closed metric cube returns `valid_no_repair`;
-- a small repairable hole is filled and returns `repaired_topology_valid`;
-- duplicate faces and orphaned vertices are audited and removed without metric-scale drift;
-- an unimplemented required check blocks validity via `needs_additional_validation`;
-- no non-uniform scaling is performed;
-- topology-changing repair surfaces `appearance_rebake_required=true`;
-- all existing M0/M1 regression remains green.
+## Acceptance closure
+
+All M1-004-001 acceptance criteria are satisfied:
+
+- JSON Schema Draft 2020-12 contracts: PASS;
+- contracts reject shortcut `printable` fields: PASS;
+- closed metric cube -> `valid_no_repair`: PASS;
+- triangle-hole local repair -> `repaired_topology_valid`: PASS;
+- duplicate face + orphan vertex audit/cleanup: PASS;
+- metric-scale preservation: PASS;
+- multi-component counting without graph soft dependencies: PASS;
+- local winding flip repair: PASS;
+- large boundary loop is conservatively left for robust repair: PASS;
+- required unimplemented checks -> `needs_additional_validation`: PASS;
+- topology repair -> explicit appearance rebake disclosure: PASS;
+- existing M0/M1 geometry, golden, widget and MCP E2E regressions: PASS.
+
+Verification on code head `bdea33e4dd822dc1402de70faf61195767435e37`:
+
+- M1-004 production-matched CI run `33731087765` (#5): **SUCCESS**;
+- main integration CI run `33731087774` (#81): **SUCCESS**.
 
 ## Next work packages
 
