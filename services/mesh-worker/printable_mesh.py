@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 import trimesh
@@ -364,7 +365,7 @@ def repair_topology(
     if topology_changed:
         notes.append("Topology changed; PBR/UV material rebaking may be required.")
 
-    timestamp = created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = created_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     report = {
         "schema_version": "0.1.0",
         "report_id": report_id,
