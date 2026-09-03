@@ -19,6 +19,8 @@ ALL_CHECKS = TOPOLOGY_CHECKS + (
     "minimum_feature",
 )
 
+EdgeRecord = tuple[int, int, int]
+
 
 def _vec3(values: np.ndarray) -> dict[str, float]:
     return {
@@ -45,21 +47,27 @@ def _bounding_box(mesh: trimesh.Trimesh) -> dict[str, dict[str, float]]:
     }
 
 
+def _edge_records(faces: np.ndarray) -> dict[tuple[int, int], list[EdgeRecord]]:
+    records: dict[tuple[int, int], list[EdgeRecord]] = {}
+    for face_index, face in enumerate(faces):
+        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+        for start, end in ((a, b), (b, c), (c, a)):
+            key = (start, end) if start < end else (end, start)
+            records.setdefault(key, []).append((face_index, start, end))
+    return records
+
+
 def _edge_incidence(faces: np.ndarray) -> tuple[int, int]:
-    if len(faces) == 0:
-        return 0, 0
-    edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
-    edges = np.sort(edges, axis=1)
-    _unique, counts = np.unique(edges, axis=0, return_counts=True)
-    boundary = int(np.count_nonzero(counts == 1))
-    nonmanifold = int(np.count_nonzero(counts > 2))
+    records = _edge_records(faces)
+    boundary = sum(1 for owners in records.values() if len(owners) == 1)
+    nonmanifold = sum(1 for owners in records.values() if len(owners) > 2)
     return boundary, nonmanifold
 
 
-def _face_component_count(faces: np.ndarray) -> int:
+def _face_components(faces: np.ndarray) -> list[np.ndarray]:
     face_count = len(faces)
     if face_count == 0:
-        return 0
+        return []
 
     parent = np.arange(face_count, dtype=np.int64)
     rank = np.zeros(face_count, dtype=np.int8)
@@ -87,18 +95,17 @@ def _face_component_count(faces: np.ndarray) -> int:
             parent[right_root] = left_root
             rank[left_root] += 1
 
-    edge_owner: dict[tuple[int, int], int] = {}
-    for face_index, face in enumerate(faces):
-        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
-        for start, end in ((a, b), (b, c), (c, a)):
-            edge = (start, end) if start < end else (end, start)
-            owner = edge_owner.get(edge)
-            if owner is None:
-                edge_owner[edge] = face_index
-            else:
-                union(face_index, owner)
+    for owners in _edge_records(faces).values():
+        if len(owners) < 2:
+            continue
+        first = owners[0][0]
+        for owner in owners[1:]:
+            union(first, owner[0])
 
-    return len({find(index) for index in range(face_count)})
+    grouped: dict[int, list[int]] = {}
+    for index in range(face_count):
+        grouped.setdefault(find(index), []).append(index)
+    return [np.asarray(indices, dtype=np.int64) for indices in grouped.values()]
 
 
 def _duplicate_face_count(faces: np.ndarray) -> int:
@@ -135,7 +142,7 @@ def diagnose_mesh(mesh: trimesh.Trimesh) -> dict[str, Any]:
     return {
         "vertex_count": int(len(mesh.vertices)),
         "triangle_count": int(len(mesh.faces)),
-        "component_count": _face_component_count(faces),
+        "component_count": len(_face_components(faces)),
         "boundary_edge_count": boundary_edges,
         "nonmanifold_edge_count": nonmanifold_edges,
         "duplicate_face_count": _duplicate_face_count(faces),
@@ -243,6 +250,140 @@ def _remove_degenerate_faces(mesh: trimesh.Trimesh) -> int:
     return removed
 
 
+def _boundary_cycles(faces: np.ndarray) -> tuple[list[list[int]], int]:
+    boundary_records = [
+        owners[0]
+        for owners in _edge_records(faces).values()
+        if len(owners) == 1
+    ]
+    if not boundary_records:
+        return [], 0
+
+    adjacency: dict[int, set[int]] = {}
+    for _face_index, start, end in boundary_records:
+        adjacency.setdefault(start, set()).add(end)
+        adjacency.setdefault(end, set()).add(start)
+
+    unseen = set(adjacency)
+    cycles: list[list[int]] = []
+    unsafe_components = 0
+    while unseen:
+        seed = min(unseen)
+        stack = [seed]
+        component: set[int] = set()
+        while stack:
+            vertex = stack.pop()
+            if vertex in component:
+                continue
+            component.add(vertex)
+            unseen.discard(vertex)
+            stack.extend(adjacency[vertex].difference(component))
+
+        if any(len(adjacency[vertex]) != 2 for vertex in component):
+            unsafe_components += 1
+            continue
+
+        start = min(component)
+        cycle = [start]
+        previous: int | None = None
+        current = start
+        while True:
+            choices = sorted(adjacency[current])
+            next_vertex = choices[0] if choices[0] != previous else choices[1]
+            if next_vertex == start:
+                break
+            if next_vertex in cycle:
+                cycle = []
+                break
+            cycle.append(next_vertex)
+            previous, current = current, next_vertex
+
+        if cycle and set(cycle) == component:
+            cycles.append(cycle)
+        else:
+            unsafe_components += 1
+
+    return cycles, unsafe_components
+
+
+def _fill_small_holes(mesh: trimesh.Trimesh) -> tuple[int, int, int]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    cycles, unsafe = _boundary_cycles(faces)
+    new_faces: list[list[int]] = []
+    skipped_large = 0
+    for cycle in cycles:
+        if len(cycle) == 3:
+            new_faces.append([cycle[0], cycle[1], cycle[2]])
+        elif len(cycle) == 4:
+            new_faces.append([cycle[0], cycle[1], cycle[2]])
+            new_faces.append([cycle[0], cycle[2], cycle[3]])
+        else:
+            skipped_large += 1
+
+    if new_faces:
+        mesh.faces = np.vstack((faces, np.asarray(new_faces, dtype=np.int64)))
+    return len(new_faces), skipped_large, unsafe
+
+
+def _repair_winding(mesh: trimesh.Trimesh) -> tuple[int, int]:
+    faces = np.asarray(mesh.faces, dtype=np.int64).copy()
+    if len(faces) == 0:
+        return 0, 0
+
+    adjacency: list[list[tuple[int, bool]]] = [[] for _ in range(len(faces))]
+    for owners in _edge_records(faces).values():
+        if len(owners) != 2:
+            continue
+        left, right = owners
+        same_direction = left[1] == right[1] and left[2] == right[2]
+        adjacency[left[0]].append((right[0], same_direction))
+        adjacency[right[0]].append((left[0], same_direction))
+
+    flip_state = np.full(len(faces), -1, dtype=np.int8)
+    conflicts = 0
+    for seed in range(len(faces)):
+        if flip_state[seed] != -1:
+            continue
+        flip_state[seed] = 0
+        stack = [seed]
+        while stack:
+            face_index = stack.pop()
+            for neighbor, must_differ in adjacency[face_index]:
+                expected = int(flip_state[face_index]) ^ int(must_differ)
+                if flip_state[neighbor] == -1:
+                    flip_state[neighbor] = expected
+                    stack.append(neighbor)
+                elif int(flip_state[neighbor]) != expected:
+                    conflicts += 1
+
+    flip_mask = flip_state == 1
+    flipped = int(np.count_nonzero(flip_mask))
+    if flipped:
+        faces[flip_mask] = faces[flip_mask][:, ::-1]
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    for component in _face_components(faces):
+        component_faces = faces[component]
+        boundary, nonmanifold = _edge_incidence(component_faces)
+        if boundary != 0 or nonmanifold != 0:
+            continue
+        triangles = vertices[component_faces]
+        signed_volume = float(
+            np.einsum(
+                "ij,ij->i",
+                triangles[:, 0],
+                np.cross(triangles[:, 1], triangles[:, 2]),
+            ).sum()
+            / 6.0
+        )
+        if signed_volume < 0:
+            faces[component] = faces[component][:, ::-1]
+            flipped += int(len(component))
+
+    mesh.faces = faces
+    return flipped, conflicts
+
+
 def _extents(metrics: dict[str, Any]) -> np.ndarray:
     extents = metrics["bounding_box_mm"]["extents"]
     values = [extents["x"], extents["y"], extents["z"]]
@@ -339,39 +480,33 @@ def repair_topology(
     else:
         operations.append(_operation("merge_vertices", "skipped", 0, True))
 
-    if policy["fix_normals"]:
-        before = bool(work.is_winding_consistent)
-        trimesh.repair.fix_normals(work, multibody=True)
-        after = bool(work.is_winding_consistent)
-        changed = int(before != after)
-        status = "applied" if changed else "no_change"
-        operations.append(_operation("fix_normals", status, changed, False))
-    else:
-        operations.append(_operation("fix_normals", "skipped", 0, False))
-
     if policy["fill_small_holes"]:
-        before_faces = len(work.faces)
-        before_boundary = diagnose_mesh(work)["boundary_edge_count"]
-        try:
-            result = bool(trimesh.repair.fill_holes(work))
-            added = int(max(0, len(work.faces) - before_faces))
-            after_boundary = diagnose_mesh(work)["boundary_edge_count"]
-            changed = added > 0 or after_boundary < before_boundary
-            note = None if result or changed else "No fillable triangle/quad holes found"
-            operations.append(
-                _operation(
-                    "fill_small_holes",
-                    "applied" if changed else "no_change",
-                    added,
-                    True,
-                    note,
-                )
+        added, skipped_large, unsafe = _fill_small_holes(work)
+        note_parts = []
+        if skipped_large:
+            note_parts.append(f"{skipped_large} boundary loop(s) exceed 4 vertices")
+        if unsafe:
+            note_parts.append(f"{unsafe} ambiguous boundary component(s) skipped")
+        note = "; ".join(note_parts) or None
+        operations.append(
+            _operation(
+                "fill_small_holes",
+                "applied" if added else "no_change",
+                added,
+                True,
+                note,
             )
-        except Exception as exc:
-            note = f"{type(exc).__name__}: {exc}"
-            operations.append(_operation("fill_small_holes", "failed", None, True, note))
+        )
     else:
         operations.append(_operation("fill_small_holes", "skipped", 0, True))
+
+    if policy["fix_normals"]:
+        flipped, conflicts = _repair_winding(work)
+        note = f"{conflicts} winding constraint conflict(s)" if conflicts else None
+        status = "failed" if conflicts else "applied" if flipped else "no_change"
+        operations.append(_operation("fix_normals", status, flipped, False, note))
+    else:
+        operations.append(_operation("fix_normals", "skipped", 0, False))
 
     output_metrics = diagnose_mesh(work)
     output_checks = build_checks(output_metrics, required)
