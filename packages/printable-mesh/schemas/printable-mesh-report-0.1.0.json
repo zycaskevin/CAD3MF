@@ -40,6 +40,7 @@
       "enum": [
         "valid_no_repair",
         "repaired_topology_valid",
+        "needs_additional_validation",
         "needs_robust_repair",
         "rejected",
         "error"
