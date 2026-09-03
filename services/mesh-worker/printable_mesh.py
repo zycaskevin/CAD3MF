@@ -28,14 +28,18 @@ def _vec3(values: np.ndarray) -> dict[str, float]:
 
 
 def _bounding_box(mesh: trimesh.Trimesh) -> dict[str, dict[str, float]]:
-    if len(mesh.vertices) == 0:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if len(mesh.vertices) == 0 or len(faces) == 0:
         zero = np.zeros(3, dtype=np.float64)
         return {"min": _vec3(zero), "max": _vec3(zero), "extents": _vec3(zero)}
-    bounds = np.asarray(mesh.bounds, dtype=np.float64)
-    extents = bounds[1] - bounds[0]
+    referenced = np.unique(faces.reshape(-1))
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)[referenced]
+    lower = vertices.min(axis=0)
+    upper = vertices.max(axis=0)
+    extents = upper - lower
     return {
-        "min": _vec3(bounds[0]),
-        "max": _vec3(bounds[1]),
+        "min": _vec3(lower),
+        "max": _vec3(upper),
         "extents": _vec3(extents),
     }
 
