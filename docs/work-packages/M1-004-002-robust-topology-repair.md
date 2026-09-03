@@ -1,6 +1,6 @@
 # M1-004-002 — Robust Topology Repair Backend
 
-Status: In Development  
+Status: COMPLETE  
 Milestone: CAD3MF M1  
 Date: 2026-09-03  
 Base: M1-004-001 COMPLETE / safe deterministic topology repair
@@ -65,7 +65,7 @@ RobustRepairBackend
   algorithm_id
   version
   reconstruct(vertices_mm, faces, quality_tier)
-       -> vertices_mm, faces, backend_metadata
+       -> vertices_mm, faces
 ```
 
 Rules:
@@ -74,7 +74,8 @@ Rules:
 2. No backend-specific fields enter Asset-IR or Manufacturing-IR.
 3. Unknown or unavailable backends fail closed.
 4. There is no fallback to the M1-003 deterministic cube or to a silent alternate backend.
-5. Global reconstruction always invalidates authoritative UV/PBR correspondence; material rebaking is required.
+5. Global reconstruction invalidates authoritative UV/PBR correspondence; material rebaking is required.
+6. Backend success is never authoritative. CAD3MF always re-validates returned topology.
 
 ## First production candidate
 
@@ -84,7 +85,7 @@ First adapter: `point-cloud-utils` `make_mesh_watertight()`.
 
 Selection rationale:
 
-- current project license is MIT;
+- current project/release path is MIT;
 - explicitly exposes watertight reconstruction from arbitrary triangle meshes;
 - algorithm is intended for triangle-soup / broken-mesh reconstruction;
 - current releases removed prior GPL dependencies;
@@ -92,16 +93,17 @@ Selection rationale:
 
 Deployment caveat:
 
-- PyPI currently publishes Linux x86_64 wheels and macOS ARM64 wheels, but not a Linux ARM64 wheel for the current release;
-- therefore NVIDIA GB10/aarch64 deployment must use a **separate robust-repair runtime/source build**, not the existing SF3D venv;
-- GB10 source-build validation is deferred to the real Figurine + Tank repair validation path rather than being assumed.
+- the validated CI artifact is Linux x86_64;
+- the reviewed current PyPI artifacts do not provide the Linux ARM64 wheel required by NVIDIA GB10/aarch64;
+- therefore GB10 deployment requires a **separate robust-repair runtime/source build**, not the existing SF3D venv;
+- GB10 source-build validation is deferred to M1-004-004 rather than being assumed here.
 
 Rejected as default backends at this stage:
 
 - PyMeshFix / MeshFix: GPL and/or separate commercial licensing requirement;
 - MeshLab / PyMeshLab: GPL distribution boundary;
-- MeshLib: current public license is non-commercial/education;
-- Manifold3D: permissive Apache-2.0 and excellent manifold kernel, but arbitrary broken input is not its primary repair contract; it may be useful later as an output certification/geometry kernel, not the first robust reconstruction provider.
+- MeshLib: reviewed public license is non-commercial/education;
+- Manifold3D: permissive Apache-2.0 and useful as a manifold kernel, but arbitrary broken input is not its primary reconstruction contract.
 
 ## Quality tiers
 
@@ -125,11 +127,11 @@ A successful robust reconstruction must re-enter the M1-004-001 diagnostics and 
 - `nonmanifold_edge_count = 0`
 - `winding_consistent = true`
 
-A backend returning bytes/arrays is not enough. Geometry must pass CAD3MF diagnostics.
+A backend returning arrays is not enough. Geometry must pass CAD3MF diagnostics.
 
 ## Shape-fidelity gate
 
-Global reconstruction can make a mesh watertight while destroying product identity or dimensions. Therefore M1-004-002 adds an explicit fidelity gate.
+Global reconstruction can make a mesh watertight while destroying product identity or dimensions. M1-004-002 therefore adds an explicit fidelity gate.
 
 Required observations:
 
@@ -137,9 +139,9 @@ Required observations:
 - centroid drift in mm;
 - deterministic sampled-vertex Chamfer distance in mm;
 - deterministic sampled-vertex Hausdorff distance in mm;
-- sample count used for the comparison.
+- sample count used for comparison.
 
-These are **geometry preservation observations**, not printability claims.
+These are **geometry-preservation observations**, not printability claims. The sampled metrics are point-set measurements over deterministic vertex samples and are not claimed to be continuous-surface Hausdorff/Chamfer values.
 
 The request supplies maximum tolerances. If topology passes but fidelity exceeds any required tolerance, status is `rejected_fidelity`.
 
@@ -159,42 +161,121 @@ Robust reconstruction is topology-replacing by definition.
 
 Therefore:
 
-- `appearance_rebake_required = true` whenever a reconstructed mesh exists;
+- reconstructed geometry requires appearance rebaking;
 - original UV indexing is not authoritative after reconstruction;
-- original texture/PBR provenance must remain attached to the source artifact so later rebaking can project appearance onto the repaired geometry.
+- original texture/PBR provenance remains attached to the source artifact so later rebaking can project appearance onto repaired geometry.
 
 ## Implemented artifacts
 
-Planned contracts:
+Contracts:
 
 - `packages/printable-mesh/schemas/robust-repair-request-0.1.0.json`
 - `packages/printable-mesh/schemas/robust-repair-report-0.1.0.json`
 
-Planned engine:
+Engine/runtime:
 
 - `services/mesh-worker/robust_repair.py`
+- `services/mesh-worker/requirements-robust-repair.txt`
 
-Planned regressions:
+Regression/integration:
 
 - `tests/test_m1_004_002_robust_repair.py`
-- production-candidate CI using the real `point-cloud-utils` adapter on Linux x86_64
+- `tests/test_m1_004_002_pcu_integration.py`
+- `.github/workflows/m1-004-robust-repair.yml`
+
+Evidence:
+
+- `docs/evidence/M1-004-002-2026-09-03.md`
+
+## Verification
+
+Functional implementation head:
+
+`f45241b23585730d03806ed8d6f44b7444512f49`
+
+### Real robust-repair CI
+
+Workflow: `m1-004-robust-repair`  
+Run: `33766930962` (#2)  
+Result: **SUCCESS**
+
+Observed runtime:
+
+- Python 3.11;
+- `numpy 1.26.4`;
+- `trimesh 4.4.1`;
+- `point-cloud-utils 0.34.0`;
+- observed transitive `scipy 1.17.1`.
+
+Regression results:
+
+```text
+8 passed in 0.63s
+1 passed in 1.24s
+```
+
+The first result validates contracts, provenance, deterministic quality mapping, fail-closed behavior, topology re-validation and fidelity rejection.
+
+The second result uses the real `point-cloud-utils` adapter on a deliberately open `40 x 60 x 120 mm` box with three removed faces. `make_mesh_watertight()` reconstructs geometry which then passes CAD3MF with:
+
+- `watertight = true`;
+- `boundary_edge_count = 0`;
+- `nonmanifold_edge_count = 0`;
+- `winding_consistent = true`.
+
+The real integration test uses deliberately generous fidelity thresholds to isolate topology reconstruction. It does not calibrate production fidelity tolerances.
+
+### M1-004-001 regression
+
+Workflow: `m1-004-printable-mesh`  
+Run: `33766931002` (#9)  
+Result: **SUCCESS**
+
+### Full integration regression
+
+Workflow: `ci`  
+Run: `33766930970` (#85)  
+Result: **SUCCESS**
+
+Verified:
+
+- Python lint/format: PASS;
+- complete geometry test suite: PASS;
+- M0 golden artifacts: PASS;
+- ChatGPT widget build/check: PASS;
+- TypeScript typecheck: PASS;
+- MCP stdio E2E: PASS;
+- MCP HTTP + ChatGPT App E2E: PASS;
+- artifact uploads: PASS.
 
 ## Acceptance criteria
 
-M1-004-002 is COMPLETE only when:
+M1-004-002 is COMPLETE because:
 
 - robust-repair request/report schemas validate under JSON Schema Draft 2020-12;
 - contracts are closed to provider-specific shortcuts;
 - backend interface is replaceable and fail-closed;
-- point-cloud-utils adapter is lazy-loaded and reports exact backend/version/algorithm provenance;
+- point-cloud-utils adapter is lazy-loaded and reports backend/version/algorithm provenance;
 - quality tiers map deterministically to reconstruction budgets;
 - output geometry is always re-diagnosed by CAD3MF;
 - topology failure returns `reconstruction_invalid`;
 - unavailable backend returns `backend_unavailable` with no fallback;
-- shape-fidelity thresholds can reject a watertight but distorted result;
-- robust reconstruction always reports `appearance_rebake_required=true`;
-- real point-cloud-utils CI repairs at least one deliberately broken triangle mesh to a watertight manifold result;
+- shape-fidelity thresholds reject a watertight but distorted fixture;
+- robust reconstruction requires appearance rebaking;
+- real point-cloud-utils CI repairs a deliberately broken triangle mesh to geometry that passes the CAD3MF manifold topology gate;
 - all existing M0/M1 and M1-004-001 regressions remain green.
+
+## Explicit non-claims
+
+M1-004-002 does **not** claim:
+
+- full printability;
+- authoritative self-intersection clearance;
+- minimum wall thickness;
+- minimum feature size;
+- calibrated production fidelity limits for characters or vehicles;
+- GB10/aarch64 point-cloud-utils deployment;
+- successful repair of the real Figurine/Tank assets yet.
 
 ## Next work packages
 
@@ -204,4 +285,4 @@ Implement the remaining explicit validation checks and conservative manufacturin
 
 ### M1-004-004 — Real Figurine + Tank Repair Validation
 
-Deploy the chosen robust backend on the GB10-side repair runtime, run the two real M1-003P GLBs through safe + robust repair, record output hashes and fidelity/topology evidence, then hand validated geometry to Manufacturing-IR.
+Build/deploy the isolated robust-repair runtime on the GB10/aarch64 side, run the two real M1-003P GLBs through safe + robust repair, record output hashes and topology/fidelity evidence, then hand validated geometry to Manufacturing-IR.
