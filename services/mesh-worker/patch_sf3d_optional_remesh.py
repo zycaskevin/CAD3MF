@@ -24,7 +24,9 @@ def patch_mesh_module(repo_root: Path) -> bool:
         text = text.replace(quad_marker, quad_replacement, 1)
 
     triangle_marker = """    ):\n        if triangle_vertex_count > 0:\n"""
-    triangle_replacement = """    ):\n        import gpytoolbox\n\n        if triangle_vertex_count > 0:\n"""
+    triangle_replacement = (
+        """    ):\n        import gpytoolbox\n\n        if triangle_vertex_count > 0:\n"""
+    )
     if "        import gpytoolbox\n" not in text:
         if triangle_marker not in text:
             raise RuntimeError("Could not locate SF3D triangle_remesh patch point")
