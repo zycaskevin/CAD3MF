@@ -337,9 +337,7 @@ def repair_topology(
     max_drift = float(np.max(np.abs(output_extents - input_extents)))
     metric_preserved = max_drift <= metric_scale_tolerance_mm
 
-    topology_valid = all(
-        output_checks[name]["status"] == "pass" for name in TOPOLOGY_CHECKS
-    )
+    topology_valid = all(output_checks[name]["status"] == "pass" for name in TOPOLOGY_CHECKS)
     topology_changed = any(
         op["changes_topology"] and op["status"] == "applied" for op in operations
     )
