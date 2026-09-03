@@ -73,6 +73,75 @@ def test_real_fcl_reports_closed_box_without_self_intersection() -> None:
     assert result["intersecting_pair_count"] == 0
 
 
+def test_real_fcl_accepts_legal_coplanar_shared_edge() -> None:
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    mesh = trimesh.Trimesh(
+        vertices=vertices,
+        faces=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.int64),
+        process=False,
+    )
+
+    result = engine.FclSelfIntersectionAnalyzer().analyze(mesh)
+
+    assert result["status"] == "pass"
+    assert result["has_intersections"] is False
+
+
+def test_real_fcl_detects_shared_vertex_pair_intersecting_elsewhere() -> None:
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [1.0, -1.0, -1.0],
+            [1.0, 1.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    mesh = trimesh.Trimesh(
+        vertices=vertices,
+        faces=np.array([[0, 1, 2], [0, 3, 4]], dtype=np.int64),
+        process=False,
+    )
+
+    result = engine.FclSelfIntersectionAnalyzer().analyze(mesh)
+
+    assert result["status"] == "fail"
+    assert result["has_intersections"] is True
+    assert result["intersecting_pair_count"] == 1
+
+
+def test_real_fcl_detects_coplanar_overlap_beyond_shared_edge() -> None:
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    mesh = trimesh.Trimesh(
+        vertices=vertices,
+        faces=np.array([[0, 1, 2], [0, 1, 3]], dtype=np.int64),
+        process=False,
+    )
+
+    result = engine.FclSelfIntersectionAnalyzer().analyze(mesh)
+
+    assert result["status"] == "fail"
+    assert result["has_intersections"] is True
+    assert result["intersecting_pair_count"] == 1
+
+
 def test_real_embree_face_normal_rays_measure_box_thickness() -> None:
     report = analyze(
         trimesh.creation.box(extents=[20.0, 30.0, 40.0]),
