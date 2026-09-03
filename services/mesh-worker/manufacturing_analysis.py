@@ -65,10 +65,6 @@ def _backend_provenance(
     }
 
 
-def _faces_share_vertex(left: np.ndarray, right: np.ndarray) -> bool:
-    return bool(np.intersect1d(left, right, assume_unique=False).size)
-
-
 def _face_bounds(vertices: np.ndarray, faces: np.ndarray) -> _FaceBounds:
     triangles = vertices[faces]
     return _FaceBounds(minimum=triangles.min(axis=1), maximum=triangles.max(axis=1))
@@ -100,17 +96,238 @@ def _candidate_face_pairs(
                 continue
             if current_max[2] + tolerance_mm < bounds.minimum[other, 2]:
                 continue
-            if _faces_share_vertex(faces[current], faces[other]):
-                continue
             yield (other, current)
         active.append(current)
+
+
+def _cross2(left: np.ndarray, right: np.ndarray) -> float:
+    return float(left[0] * right[1] - left[1] * right[0])
+
+
+def _point_segment_distance(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> float:
+    edge = end - start
+    length_sq = float(np.dot(edge, edge))
+    if length_sq <= 0:
+        return float(np.linalg.norm(point - start))
+    parameter = float(np.dot(point - start, edge) / length_sq)
+    parameter = min(1.0, max(0.0, parameter))
+    closest = start + parameter * edge
+    return float(np.linalg.norm(point - closest))
+
+
+def _point_in_triangle_2d(
+    point: np.ndarray,
+    triangle: np.ndarray,
+    tolerance: float,
+) -> bool:
+    a, b, c = triangle
+    c1 = _cross2(b - a, point - a)
+    c2 = _cross2(c - b, point - b)
+    c3 = _cross2(a - c, point - c)
+    has_negative = min(c1, c2, c3) < -tolerance
+    has_positive = max(c1, c2, c3) > tolerance
+    return not (has_negative and has_positive)
+
+
+def _unique_points(points: list[np.ndarray], tolerance: float) -> list[np.ndarray]:
+    unique: list[np.ndarray] = []
+    for point in points:
+        if not any(float(np.linalg.norm(point - existing)) <= tolerance for existing in unique):
+            unique.append(np.asarray(point, dtype=np.float64))
+    return unique
+
+
+def _segment_intersections_2d(
+    a0: np.ndarray,
+    a1: np.ndarray,
+    b0: np.ndarray,
+    b1: np.ndarray,
+    tolerance: float,
+) -> list[np.ndarray]:
+    direction_a = a1 - a0
+    direction_b = b1 - b0
+    denominator = _cross2(direction_a, direction_b)
+    delta = b0 - a0
+
+    if abs(denominator) <= tolerance:
+        if abs(_cross2(delta, direction_a)) > tolerance:
+            return []
+        candidates = [a0, a1, b0, b1]
+        return _unique_points(
+            [
+                point
+                for point in candidates
+                if _point_segment_distance(point, a0, a1) <= tolerance
+                and _point_segment_distance(point, b0, b1) <= tolerance
+            ],
+            tolerance,
+        )
+
+    t = _cross2(delta, direction_b) / denominator
+    u = _cross2(delta, direction_a) / denominator
+    if -tolerance <= t <= 1.0 + tolerance and -tolerance <= u <= 1.0 + tolerance:
+        return [a0 + t * direction_a]
+    return []
+
+
+def _coplanar_intersection_points(
+    left: np.ndarray,
+    right: np.ndarray,
+    normal: np.ndarray,
+    tolerance: float,
+) -> list[np.ndarray]:
+    drop_axis = int(np.argmax(np.abs(normal)))
+    left_2d = np.delete(left, drop_axis, axis=1)
+    right_2d = np.delete(right, drop_axis, axis=1)
+    points: list[np.ndarray] = []
+
+    for point in left_2d:
+        if _point_in_triangle_2d(point, right_2d, tolerance):
+            points.append(point)
+    for point in right_2d:
+        if _point_in_triangle_2d(point, left_2d, tolerance):
+            points.append(point)
+
+    edges = ((0, 1), (1, 2), (2, 0))
+    for a0_index, a1_index in edges:
+        for b0_index, b1_index in edges:
+            points.extend(
+                _segment_intersections_2d(
+                    left_2d[a0_index],
+                    left_2d[a1_index],
+                    right_2d[b0_index],
+                    right_2d[b1_index],
+                    tolerance,
+                )
+            )
+    return _unique_points(points, tolerance)
+
+
+def _project_point_for_triangle(point: np.ndarray, triangle: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+    drop_axis = int(np.argmax(np.abs(normal)))
+    return np.delete(point, drop_axis), np.delete(triangle, drop_axis, axis=1)
+
+
+def _segment_triangle_plane_point(
+    start: np.ndarray,
+    end: np.ndarray,
+    triangle: np.ndarray,
+    tolerance: float,
+) -> np.ndarray | None:
+    normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+    normal_length = float(np.linalg.norm(normal))
+    if normal_length <= tolerance:
+        return None
+    unit_normal = normal / normal_length
+    start_distance = float(np.dot(start - triangle[0], unit_normal))
+    end_distance = float(np.dot(end - triangle[0], unit_normal))
+
+    if start_distance > tolerance and end_distance > tolerance:
+        return None
+    if start_distance < -tolerance and end_distance < -tolerance:
+        return None
+
+    denominator = start_distance - end_distance
+    if abs(denominator) <= tolerance:
+        candidates = []
+        for point, distance in ((start, start_distance), (end, end_distance)):
+            if abs(distance) <= tolerance:
+                projected_point, projected_triangle = _project_point_for_triangle(point, triangle)
+                if _point_in_triangle_2d(projected_point, projected_triangle, tolerance):
+                    candidates.append(point)
+        return candidates[0] if candidates else None
+
+    parameter = start_distance / denominator
+    if parameter < -tolerance or parameter > 1.0 + tolerance:
+        return None
+    point = start + parameter * (end - start)
+    projected_point, projected_triangle = _project_point_for_triangle(point, triangle)
+    if _point_in_triangle_2d(projected_point, projected_triangle, tolerance):
+        return point
+    return None
+
+
+def _noncoplanar_intersection_points(
+    left: np.ndarray,
+    right: np.ndarray,
+    tolerance: float,
+) -> list[np.ndarray]:
+    points: list[np.ndarray] = []
+    edges = ((0, 1), (1, 2), (2, 0))
+    for start_index, end_index in edges:
+        point = _segment_triangle_plane_point(
+            left[start_index],
+            left[end_index],
+            right,
+            tolerance,
+        )
+        if point is not None:
+            points.append(point)
+        point = _segment_triangle_plane_point(
+            right[start_index],
+            right[end_index],
+            left,
+            tolerance,
+        )
+        if point is not None:
+            points.append(point)
+    return _unique_points(points, tolerance)
+
+
+def _adjacent_collision_is_legal(
+    left: np.ndarray,
+    right: np.ndarray,
+    shared_points: np.ndarray,
+    tolerance: float,
+) -> bool:
+    shared_count = len(shared_points)
+    if shared_count == 0:
+        return False
+    if shared_count >= 3:
+        return False
+
+    normal_left = np.cross(left[1] - left[0], left[2] - left[0])
+    normal_right = np.cross(right[1] - right[0], right[2] - right[0])
+    left_length = float(np.linalg.norm(normal_left))
+    right_length = float(np.linalg.norm(normal_right))
+    if left_length <= tolerance or right_length <= tolerance:
+        return False
+
+    unit_left = normal_left / left_length
+    unit_right = normal_right / right_length
+    planes_parallel = float(np.linalg.norm(np.cross(unit_left, unit_right))) <= 1e-8
+    plane_distance = max(abs(float(np.dot(point - left[0], unit_left))) for point in right)
+    coplanar = planes_parallel and plane_distance <= tolerance
+
+    if coplanar:
+        drop_axis = int(np.argmax(np.abs(unit_left)))
+        intersection = _coplanar_intersection_points(left, right, unit_left, tolerance)
+        shared = np.delete(shared_points, drop_axis, axis=1)
+    else:
+        intersection = _noncoplanar_intersection_points(left, right, tolerance)
+        shared = shared_points
+
+    if not intersection:
+        return False
+
+    legal_tolerance = tolerance * 10.0
+    if shared_count == 1:
+        return all(
+            float(np.linalg.norm(point - shared[0])) <= legal_tolerance for point in intersection
+        )
+
+    return all(
+        _point_segment_distance(point, shared[0], shared[1]) <= legal_tolerance
+        for point in intersection
+    )
 
 
 class FclSelfIntersectionAnalyzer:
     """AABB broad phase plus FCL BVH mesh collision for triangle-pair narrow phase."""
 
     backend_id = "python-fcl"
-    algorithm_id = "sweep-aabb-plus-bvh-triangle-collision"
+    algorithm_id = "sweep-aabb-plus-bvh-collision-with-topology-filter"
 
     @property
     def version(self) -> str:
@@ -138,7 +355,7 @@ class FclSelfIntersectionAnalyzer:
             }
 
         diagonal = float(np.linalg.norm(vertices.max(axis=0) - vertices.min(axis=0)))
-        tolerance = max(diagonal * 1e-12, 1e-9)
+        tolerance = max(diagonal * 1e-9, 1e-8)
         objects: dict[int, Any] = {}
 
         def collision_object(face_index: int):
@@ -160,7 +377,7 @@ class FclSelfIntersectionAnalyzer:
         intersection_count = 0
         request = fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
 
-        for left, right in _candidate_face_pairs(
+        for left_index, right_index in _candidate_face_pairs(
             vertices,
             faces,
             tolerance_mm=tolerance,
@@ -168,13 +385,28 @@ class FclSelfIntersectionAnalyzer:
             candidate_count += 1
             result = fcl.CollisionResult()
             contacts = fcl.collide(
-                collision_object(left),
-                collision_object(right),
+                collision_object(left_index),
+                collision_object(right_index),
                 request,
                 result,
             )
             tested_count += 1
-            if int(contacts) > 0 or bool(result.is_collision):
+            if int(contacts) <= 0 and not bool(result.is_collision):
+                continue
+
+            left_face = faces[left_index]
+            right_face = faces[right_index]
+            shared_indexes = np.intersect1d(left_face, right_face, assume_unique=False)
+            if len(shared_indexes) == 0:
+                intersection_count += 1
+                continue
+
+            if not _adjacent_collision_is_legal(
+                vertices[left_face],
+                vertices[right_face],
+                vertices[shared_indexes],
+                tolerance,
+            ):
                 intersection_count += 1
 
         has_intersections = intersection_count > 0
@@ -185,7 +417,9 @@ class FclSelfIntersectionAnalyzer:
             "tested_pair_count": tested_count,
             "intersecting_pair_count": intersection_count,
             "exhaustive": True,
-            "notes": ["Face pairs sharing a mesh vertex are excluded as legal adjacency contacts."],
+            "notes": [
+                "All overlapping AABB face pairs are tested. Topologically adjacent collisions are accepted only when their geometric intersection is confined to the shared vertex or edge."
+            ],
         }
 
 
