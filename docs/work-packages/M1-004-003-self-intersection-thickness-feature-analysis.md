@@ -1,6 +1,6 @@
 # M1-004-003 — Self-Intersection, Thickness & Minimum Feature Analysis
 
-Status: COMPLETE pending closure-head CI  
+Status: COMPLETE  
 Milestone: CAD3MF M1  
 Date: 2026-09-03  
 Base: M1-004-002 COMPLETE / robust topology reconstruction
@@ -193,7 +193,7 @@ No M1-004-003 status is a slicer-level print guarantee.
 
 ## Native regression evidence
 
-The dedicated native suite now contains 10 contract tests plus 8 real native geometry fixtures.
+The dedicated native suite contains 10 contract tests plus 8 real native geometry fixtures.
 
 Contract suite verifies:
 
@@ -219,19 +219,47 @@ Native FCL/Embree suite verifies:
 7. a `0.6 mm` thin member fails a `0.8 mm` thickness requirement;
 8. two solids separated by a `0.5 mm` exterior gap fail a `0.8 mm` minimum-feature requirement.
 
-Latest pre-closure native run on functional head `49c2fc7c4064ef9c9b7ad68a08a3dffdcbac00bd`:
+Latest pre-closure functional head:
 
-- manufacturing-analysis run `33771511474` (#11): **SUCCESS**
-- 10 contract tests: PASS
-- 8 native FCL/Embree tests: PASS
+`49c2fc7c4064ef9c9b7ad68a08a3dffdcbac00bd`
+
+Pre-closure verification:
+
+- Manufacturing Analysis run `33771511474` (#11): **SUCCESS**
 - Printable Mesh run `33771511457` (#22): **SUCCESS**
 - Robust Repair run `33771511467` (#15): **SUCCESS**
 
-Full repository CI run `33771511454` (#98) has already passed Python lint, complete geometry tests and M0 golden artifact generation at the time of canonical closure preparation; final widget/MCP completion is the remaining integration gate before closure-head freeze.
+## Final closure verification
+
+Canonical closure gate head:
+
+`6f1b90cd47674b609a440ef0e0f0e7eda9a86e7a`
+
+All required closure workflows succeeded:
+
+- Manufacturing Analysis run `33771805960` (#13): **SUCCESS**
+- Printable Mesh run `33771805934` (#24): **SUCCESS**
+- Robust Repair run `33771805831` (#17): **SUCCESS**
+- Full repository CI run `33771805821` (#100): **SUCCESS**
+
+Full repository closure verification includes:
+
+- Python lint/format: PASS
+- complete geometry suite: PASS
+- M0 golden artifacts: PASS
+- ChatGPT widget build/check: PASS
+- TypeScript typecheck: PASS
+- MCP stdio E2E: PASS
+- MCP HTTP + ChatGPT App E2E: PASS
+- artifact uploads: PASS
+
+Detailed evidence is recorded in:
+
+- `docs/evidence/M1-004-003-2026-09-03.md`
 
 ## Acceptance criteria
 
-M1-004-003 is COMPLETE only when:
+M1-004-003 is COMPLETE because:
 
 - the manufacturing analysis schema validates under JSON Schema Draft 2020-12;
 - all overlapping self-intersection candidates receive a real FCL collision narrow-phase test;
@@ -242,7 +270,7 @@ M1-004-003 is COMPLETE only when:
 - all native regression fixtures pass with real FCL/PCU backends;
 - analysis results map into existing Printable Mesh checks;
 - existing M0/M1, M1-004-001 and M1-004-002 regressions remain green;
-- closure-head manufacturing-analysis, Printable Mesh, Robust Repair and full repository CI are all SUCCESS.
+- canonical closure workflows are all SUCCESS.
 
 ## Next work package
 
