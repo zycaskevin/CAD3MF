@@ -6,7 +6,6 @@ from typing import Any, Protocol
 
 import numpy as np
 import trimesh
-
 from printable_mesh import diagnose_mesh
 
 QUALITY_RESOLUTION_BUDGET = {
@@ -285,8 +284,10 @@ def robust_repair(
         report["notes"] = [f"Reconstruction exceeded fidelity thresholds: {failed}"]
     else:
         report["status"] = "reconstructed_topology_valid"
-        report["notes"] = [
-            "Global reconstruction replaced topology; original UV/PBR indexing is not authoritative."
-        ]
+        note = (
+            "Global reconstruction replaced topology; "
+            "original UV/PBR indexing is not authoritative."
+        )
+        report["notes"] = [note]
 
     return output, report
