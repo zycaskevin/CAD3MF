@@ -4,3 +4,4 @@ pydantic>=2.11,<3
 pytest>=8.4,<9
 jsonschema>=4.25,<5
 ruff>=0.12,<1
+trimesh==4.4.1
