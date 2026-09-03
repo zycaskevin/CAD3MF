@@ -800,9 +800,7 @@ def analyze_manufacturing_geometry(
             thickness,
             feature,
         ),
-        "notes": [
-            "M1-004-003 is geometry-only; printer/slicer policy is outside this report."
-        ],
+        "notes": ["M1-004-003 is geometry-only; printer/slicer policy is outside this report."],
         "created_at": created_at,
     }
 
