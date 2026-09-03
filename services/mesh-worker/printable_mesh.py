@@ -56,6 +56,51 @@ def _edge_incidence(faces: np.ndarray) -> tuple[int, int]:
     return boundary, nonmanifold
 
 
+def _face_component_count(faces: np.ndarray) -> int:
+    face_count = len(faces)
+    if face_count == 0:
+        return 0
+
+    parent = np.arange(face_count, dtype=np.int64)
+    rank = np.zeros(face_count, dtype=np.int8)
+
+    def find(index: int) -> int:
+        root = index
+        while parent[root] != root:
+            root = int(parent[root])
+        while parent[index] != index:
+            next_index = int(parent[index])
+            parent[index] = root
+            index = next_index
+        return root
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if rank[left_root] < rank[right_root]:
+            parent[left_root] = right_root
+        elif rank[left_root] > rank[right_root]:
+            parent[right_root] = left_root
+        else:
+            parent[right_root] = left_root
+            rank[left_root] += 1
+
+    edge_owner: dict[tuple[int, int], int] = {}
+    for face_index, face in enumerate(faces):
+        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+        for start, end in ((a, b), (b, c), (c, a)):
+            edge = (start, end) if start < end else (end, start)
+            owner = edge_owner.get(edge)
+            if owner is None:
+                edge_owner[edge] = face_index
+            else:
+                union(face_index, owner)
+
+    return len({find(index) for index in range(face_count)})
+
+
 def _duplicate_face_count(faces: np.ndarray) -> int:
     if len(faces) == 0:
         return 0
@@ -87,13 +132,10 @@ def _unreferenced_vertex_count(mesh: trimesh.Trimesh) -> int:
 def diagnose_mesh(mesh: trimesh.Trimesh) -> dict[str, Any]:
     faces = np.asarray(mesh.faces, dtype=np.int64)
     boundary_edges, nonmanifold_edges = _edge_incidence(faces)
-    component_count = 0
-    if len(faces) > 0:
-        component_count = len(mesh.split(only_watertight=False))
     return {
         "vertex_count": int(len(mesh.vertices)),
         "triangle_count": int(len(mesh.faces)),
-        "component_count": int(component_count),
+        "component_count": _face_component_count(faces),
         "boundary_edge_count": boundary_edges,
         "nonmanifold_edge_count": nonmanifold_edges,
         "duplicate_face_count": _duplicate_face_count(faces),
