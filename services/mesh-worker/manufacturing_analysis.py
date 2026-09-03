@@ -107,10 +107,10 @@ def _candidate_face_pairs(
 
 
 class FclSelfIntersectionAnalyzer:
-    """Exact triangle narrow-phase backed by BSD-licensed python-fcl/FCL."""
+    """AABB broad phase plus FCL BVH mesh collision for triangle-pair narrow phase."""
 
     backend_id = "python-fcl"
-    algorithm_id = "sweep-aabb-plus-trianglep-collision"
+    algorithm_id = "sweep-aabb-plus-bvh-triangle-collision"
 
     @property
     def version(self) -> str:
@@ -145,8 +145,12 @@ class FclSelfIntersectionAnalyzer:
             cached = objects.get(face_index)
             if cached is not None:
                 return cached
-            triangle = vertices[faces[face_index]]
-            geometry = fcl.TriangleP(triangle[0], triangle[1], triangle[2])
+            triangle = np.ascontiguousarray(vertices[faces[face_index]], dtype=np.float64)
+            local_faces = np.array([[0, 1, 2]], dtype=np.int32)
+            geometry = fcl.BVHModel()
+            geometry.beginModel(len(triangle), len(local_faces))
+            geometry.addSubModel(triangle, local_faces)
+            geometry.endModel()
             obj = fcl.CollisionObject(geometry)
             objects[face_index] = obj
             return obj
