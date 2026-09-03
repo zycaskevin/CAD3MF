@@ -1,0 +1,30 @@
+name: m1-004-manufacturing-analysis
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  manufacturing-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/mesh-worker/requirements-manufacturing-analysis.txt
+
+      - name: Install manufacturing analysis runtime
+        run: |
+          python -m pip install -r services/mesh-worker/requirements-manufacturing-analysis.txt
+          python -m pip install pytest==8.4.2 jsonschema==4.26.0
+
+      - name: Run M1-004-003 contract tests
+        run: pytest -q tests/test_m1_004_003_manufacturing_analysis.py
+
+      - name: Run native FCL + Embree manufacturing analysis
+        run: pytest -q tests/test_m1_004_003_native_integration.py

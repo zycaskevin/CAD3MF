@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/manufacturing-geometry-analysis-report/0.1.0",
+  "title": "CAD3MF Manufacturing Geometry Analysis Report 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis_id",
+    "project_id",
+    "source_mesh_artifact_id",
+    "source_sha256",
+    "backends",
+    "prerequisites",
+    "self_intersections",
+    "minimum_thickness",
+    "minimum_feature",
+    "overall_status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "analysis_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_mesh_artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "backends": {"$ref": "#/$defs/backends"},
+    "prerequisites": {"$ref": "#/$defs/prerequisites"},
+    "self_intersections": {"$ref": "#/$defs/selfIntersections"},
+    "minimum_thickness": {"$ref": "#/$defs/rayMeasurement"},
+    "minimum_feature": {"$ref": "#/$defs/rayMeasurement"},
+    "overall_status": {"enum": ["pass", "fail", "unknown", "backend_unavailable", "error"]},
+    "notes": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {"type": "string", "maxLength": 1024}
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend_id", "algorithm_id", "version"],
+      "properties": {
+        "backend_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "algorithm_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "backends": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["self_intersection", "ray_measurement"],
+      "properties": {
+        "self_intersection": {"$ref": "#/$defs/backend"},
+        "ray_measurement": {"$ref": "#/$defs/backend"}
+      }
+    },
+    "prerequisites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["watertight", "manifold_edges", "winding_consistent"],
+      "properties": {
+        "watertight": {"type": "boolean"},
+        "manifold_edges": {"type": "boolean"},
+        "winding_consistent": {"type": "boolean"}
+      }
+    },
+    "selfIntersections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "has_intersections",
+        "candidate_pair_count",
+        "tested_pair_count",
+        "intersecting_pair_count",
+        "exhaustive",
+        "notes"
+      ],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "unknown", "backend_unavailable", "error"]},
+        "has_intersections": {"type": ["boolean", "null"]},
+        "candidate_pair_count": {"type": "integer", "minimum": 0},
+        "tested_pair_count": {"type": "integer", "minimum": 0},
+        "intersecting_pair_count": {"type": ["integer", "null"], "minimum": 0},
+        "exhaustive": {"type": "boolean"},
+        "notes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "maxLength": 512}
+        }
+      }
+    },
+    "rayMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "threshold_mm",
+        "observed_min_mm",
+        "sampled_face_count",
+        "total_face_count",
+        "hit_count",
+        "exhaustive",
+        "method_scope",
+        "notes"
+      ],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "unknown", "backend_unavailable", "error"]},
+        "threshold_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "observed_min_mm": {"type": ["number", "null"], "minimum": 0},
+        "sampled_face_count": {"type": "integer", "minimum": 0},
+        "total_face_count": {"type": "integer", "minimum": 0},
+        "hit_count": {"type": "integer", "minimum": 0},
+        "exhaustive": {"type": "boolean"},
+        "method_scope": {"enum": ["inward_face_normal_chord", "outward_opposing_surface_clearance"]},
+        "notes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "maxLength": 512}
+        }
+      }
+    }
+  }
+}
