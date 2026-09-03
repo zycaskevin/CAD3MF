@@ -251,11 +251,7 @@ def _remove_degenerate_faces(mesh: trimesh.Trimesh) -> int:
 
 
 def _boundary_cycles(faces: np.ndarray) -> tuple[list[list[int]], int]:
-    boundary_records = [
-        owners[0]
-        for owners in _edge_records(faces).values()
-        if len(owners) == 1
-    ]
+    boundary_records = [owners[0] for owners in _edge_records(faces).values() if len(owners) == 1]
     if not boundary_records:
         return [], 0
 
@@ -326,7 +322,8 @@ def _fill_small_holes(mesh: trimesh.Trimesh) -> tuple[int, int, int]:
 
 
 def _repair_winding(mesh: trimesh.Trimesh) -> tuple[int, int]:
-    faces = np.asarray(mesh.faces, dtype=np.int64).copy()
+    original_faces = np.asarray(mesh.faces, dtype=np.int64).copy()
+    faces = original_faces.copy()
     if len(faces) == 0:
         return 0, 0
 
@@ -357,8 +354,7 @@ def _repair_winding(mesh: trimesh.Trimesh) -> tuple[int, int]:
                     conflicts += 1
 
     flip_mask = flip_state == 1
-    flipped = int(np.count_nonzero(flip_mask))
-    if flipped:
+    if np.any(flip_mask):
         faces[flip_mask] = faces[flip_mask][:, ::-1]
 
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
@@ -378,10 +374,10 @@ def _repair_winding(mesh: trimesh.Trimesh) -> tuple[int, int]:
         )
         if signed_volume < 0:
             faces[component] = faces[component][:, ::-1]
-            flipped += int(len(component))
 
+    changed = int(np.count_nonzero(np.any(faces != original_faces, axis=1)))
     mesh.faces = faces
-    return flipped, conflicts
+    return changed, conflicts
 
 
 def _extents(metrics: dict[str, Any]) -> np.ndarray:
@@ -519,6 +515,7 @@ def repair_topology(
     topology_changed = any(
         op["changes_topology"] and op["status"] == "applied" for op in operations
     )
+    repair_applied = any(op["status"] == "applied" for op in operations)
     unresolved_required = [
         name
         for name, check in output_checks.items()
@@ -531,7 +528,7 @@ def repair_topology(
         status = "needs_robust_repair"
     elif unresolved_required:
         status = "needs_additional_validation"
-    elif topology_changed:
+    elif repair_applied:
         status = "repaired_topology_valid"
     else:
         status = "valid_no_repair"
