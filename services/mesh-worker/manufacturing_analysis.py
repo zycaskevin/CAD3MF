@@ -55,7 +55,9 @@ def _package_version(distribution: str) -> str:
         return "unavailable"
 
 
-def _backend_provenance(backend: SelfIntersectionAnalyzer | RayMeasurementAnalyzer) -> dict[str, str]:
+def _backend_provenance(
+    backend: SelfIntersectionAnalyzer | RayMeasurementAnalyzer,
+) -> dict[str, str]:
     return {
         "backend_id": str(backend.backend_id),
         "algorithm_id": str(backend.algorithm_id),
@@ -87,9 +89,7 @@ def _candidate_face_pairs(
         current_min = bounds.minimum[current]
         current_max = bounds.maximum[current]
         active = [
-            other
-            for other in active
-            if bounds.maximum[other, 0] + tolerance_mm >= current_min[0]
+            other for other in active if bounds.maximum[other, 0] + tolerance_mm >= current_min[0]
         ]
         for other in active:
             if bounds.maximum[other, 1] + tolerance_mm < current_min[1]:
@@ -185,9 +185,7 @@ class FclSelfIntersectionAnalyzer:
             "tested_pair_count": tested_count,
             "intersecting_pair_count": intersection_count,
             "exhaustive": True,
-            "notes": [
-                "Face pairs sharing a mesh vertex are excluded as legal adjacency contacts."
-            ],
+            "notes": ["Face pairs sharing a mesh vertex are excluded as legal adjacency contacts."],
         }
 
 
@@ -304,9 +302,7 @@ class PcuRayMeasurementAnalyzer:
             & (inward_t > 0)
         )
         inward_distances = inward_t[inward_valid] + epsilon
-        thickness_min = (
-            float(inward_distances.min()) if len(inward_distances) > 0 else None
-        )
+        thickness_min = float(inward_distances.min()) if len(inward_distances) > 0 else None
         thickness_exhaustive = all_faces_sampled and bool(np.all(inward_valid))
         thickness = {
             "status": _ray_measurement_status(
