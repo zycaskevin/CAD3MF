@@ -17,7 +17,9 @@ def patch_mesh_module(repo_root: Path) -> bool:
     text = text.replace("import pynanoinstantmeshes\n", "")
 
     quad_marker = """    ) -> Mesh:\n        if quad_vertex_count < 0:\n"""
-    quad_replacement = """    ) -> Mesh:\n        import pynanoinstantmeshes\n\n        if quad_vertex_count < 0:\n"""
+    quad_replacement = (
+        """    ) -> Mesh:\n        import pynanoinstantmeshes\n\n        if quad_vertex_count < 0:\n"""
+    )
     if "        import pynanoinstantmeshes\n" not in text:
         if quad_marker not in text:
             raise RuntimeError("Could not locate SF3D quad_remesh patch point")
