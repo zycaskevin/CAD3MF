@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/robust-repair-request/0.1.0",
+  "title": "CAD3MF Robust Repair Request 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "project_id",
+    "source_mesh_artifact_id",
+    "source_sha256",
+    "strategy",
+    "quality_tier",
+    "fidelity_policy",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source_mesh_artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "strategy": {"const": "watertight_reconstruction"},
+    "quality_tier": {"enum": ["preview", "standard", "high", "ultra"]},
+    "fidelity_policy": {"$ref": "#/$defs/fidelityPolicy"},
+    "notes": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {"type": "string", "maxLength": 1024}
+    },
+    "status": {"enum": ["submitted", "running", "completed", "rejected", "error"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "fidelityPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_extent_drift_mm",
+        "max_centroid_drift_mm",
+        "max_sampled_vertex_chamfer_mm",
+        "max_sampled_vertex_hausdorff_mm",
+        "sample_count"
+      ],
+      "properties": {
+        "max_extent_drift_mm": {"type": "number", "minimum": 0, "maximum": 1000},
+        "max_centroid_drift_mm": {"type": "number", "minimum": 0, "maximum": 1000},
+        "max_sampled_vertex_chamfer_mm": {"type": "number", "minimum": 0, "maximum": 1000},
+        "max_sampled_vertex_hausdorff_mm": {"type": "number", "minimum": 0, "maximum": 1000},
+        "sample_count": {"type": "integer", "minimum": 64, "maximum": 8192}
+      }
+    }
+  }
+}
