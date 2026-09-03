@@ -15,10 +15,7 @@ if str(WORKER) not in sys.path:
 
 import manufacturing_analysis as engine  # noqa: E402
 
-SCHEMA = (
-    ROOT
-    / "packages/printable-mesh/schemas/manufacturing-geometry-analysis-report-0.1.0.json"
-)
+SCHEMA = ROOT / "packages/printable-mesh/schemas/manufacturing-geometry-analysis-report-0.1.0.json"
 SHA = "b" * 64
 
 
@@ -112,8 +109,7 @@ class UnavailableSelfAnalyzer(FakeSelfAnalyzer):
 def analyze(mesh, *, required=None, self_backend=None, ray_backend=None):
     return engine.analyze_manufacturing_geometry(
         mesh,
-        required_checks=required
-        or {"self_intersections", "minimum_thickness", "minimum_feature"},
+        required_checks=required or {"self_intersections", "minimum_thickness", "minimum_feature"},
         minimum_thickness_mm=1.0,
         minimum_feature_mm=0.8,
         self_intersection_backend=self_backend or FakeSelfAnalyzer(),
