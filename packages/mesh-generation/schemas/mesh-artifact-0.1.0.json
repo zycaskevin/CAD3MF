@@ -16,6 +16,7 @@
     "triangle_count",
     "bounding_box_mm",
     "topology_observations",
+    "consumed_views",
     "provenance",
     "status"
   ],
@@ -51,6 +52,15 @@
           "maxItems": 64,
           "items": {"type": "string", "minLength": 1, "maxLength": 1000}
         }
+      }
+    },
+    "consumed_views": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["front", "left", "right", "back", "three_quarter_front", "three_quarter_back"]
       }
     },
     "provenance": {

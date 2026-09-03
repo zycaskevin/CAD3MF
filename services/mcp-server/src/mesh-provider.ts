@@ -9,9 +9,12 @@ export class DeterministicMeshProvider implements MeshProvider {
   readonly providerId = "deterministic-mesh-ci";
   readonly modelId = "cube-fixture";
   readonly modelVersion = "1";
+  readonly requiresTargetDimension = false;
 
   async generate(context: MeshProviderContext): Promise<MeshProviderOutput> {
-    if (context.views.length < 4) throw new Error("mesh generation requires at least four turnaround views");
+    if (context.views.length < 4) {
+      throw new Error("mesh generation requires at least four turnaround views");
+    }
     if (context.request.outputFormat !== "ply") {
       throw new Error("deterministic CI mesh provider supports only PLY");
     }
@@ -31,6 +34,7 @@ export class DeterministicMeshProvider implements MeshProvider {
         selfIntersectionsDetected: false,
         notes: ["Deterministic cube fixture for CI only; not a production reconstruction."],
       },
+      consumedViews: context.views.map((view) => view.view),
     };
   }
 }

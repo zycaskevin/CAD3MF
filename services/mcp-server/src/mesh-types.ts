@@ -8,6 +8,12 @@ export type MeshAssetKind =
   | "decorative_part"
   | "other";
 
+export interface MeshTargetDimension {
+  name: string;
+  value: number;
+  unit: "mm";
+}
+
 export interface MeshGenerationRequest {
   projectId: string;
   turnaroundRevisionId: string;
@@ -15,6 +21,7 @@ export interface MeshGenerationRequest {
   qualityTier: "preview" | "standard" | "high";
   outputFormat: MeshFormat;
   texturePolicy: "none" | "vertex_color" | "pbr";
+  targetDimensions: MeshTargetDimension[];
   targetTriangleCount?: number | null;
 }
 
@@ -47,11 +54,15 @@ export interface MeshProviderOutput {
     selfIntersectionsDetected: boolean | null;
     notes: string[];
   };
+  /** Canonical turnaround view names actually consumed by this provider. */
+  consumedViews: string[];
 }
 
 export interface MeshProvider {
   readonly providerId: string;
   readonly modelId: string;
   readonly modelVersion: string | null;
+  /** True when the provider emits normalized geometry and requires a confirmed metric target. */
+  readonly requiresTargetDimension: boolean;
   generate(context: MeshProviderContext): Promise<MeshProviderOutput>;
 }

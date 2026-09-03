@@ -2,10 +2,25 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { createM1Job, failM1Job, startM1Job, succeedM1Job, type M1ArtifactRef, type M1JobManifest } from "./jobs.js";
-import { DeterministicMeshProvider } from "./mesh-provider.js";
+import {
+  createM1Job,
+  failM1Job,
+  startM1Job,
+  succeedM1Job,
+  type M1ArtifactRef,
+  type M1JobManifest,
+} from "./jobs.js";
+import { createMeshProviderFromEnv } from "./mesh-provider-factory.js";
 import { MeshStore, type StoredMeshArtifact } from "./mesh-store.js";
-import type { MeshAssetKind, MeshFormat, MeshGenerationRequest, MeshProvider } from "./mesh-types.js";
+import type {
+  MeshAssetKind,
+  MeshFormat,
+  MeshGenerationRequest,
+  MeshInputView,
+  MeshProvider,
+  MeshProviderOutput,
+  MeshTargetDimension,
+} from "./mesh-types.js";
 import { VisualStore } from "./visual-store.js";
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -53,11 +68,19 @@ function validateMeshBytes(format: MeshFormat, bytes: Uint8Array): void {
     return;
   }
   const prefix = new TextDecoder().decode(bytes.slice(0, Math.min(bytes.byteLength, 128)));
-  if (format === "ply" && !prefix.startsWith("ply\n")) throw new Error("mesh provider returned invalid PLY header");
-  if (format === "obj" && !/(^|\n)(v|o|g)\s/.test(prefix)) throw new Error("mesh provider returned invalid OBJ content");
+  if (format === "ply" && !prefix.startsWith("ply\n")) {
+    throw new Error("mesh provider returned invalid PLY header");
+  }
+  if (format === "obj" && !/(^|\n)(v|o|g)\s/.test(prefix)) {
+    throw new Error("mesh provider returned invalid OBJ content");
+  }
 }
 
-function logicalRef(document: Record<string, unknown>, kind: string, revisionId: string): M1ArtifactRef {
+function logicalRef(
+  document: Record<string, unknown>,
+  kind: string,
+  revisionId: string,
+): M1ArtifactRef {
   return {
     artifact_id: `${kind}:${revisionId}`,
     kind,
@@ -71,15 +94,102 @@ function assetType(kind: MeshAssetKind): string {
   return kind;
 }
 
-function printDefaults(kind: MeshAssetKind): Record<string, unknown> {
+function printDefaults(
+  kind: MeshAssetKind,
+  targetDimension: MeshTargetDimension | null,
+): Record<string, unknown> {
   const organic = kind === "figurine" || kind === "character";
+  const normalizedName = targetDimension?.name.toLowerCase().replace(/[.-]/g, "_") ?? "";
   return {
     minimum_wall_thickness_mm: organic ? 1.2 : 1.6,
     minimum_feature_size_mm: 1.0,
     base_required: organic,
-    target_height_mm: null,
+    target_height_mm:
+      targetDimension && normalizedName.includes("height") ? targetDimension.value : null,
     maximum_overhang_deg: null,
   };
+}
+
+function providerDefaults(provider: MeshProvider): {
+  outputFormat: MeshFormat;
+  texturePolicy: "none" | "vertex_color" | "pbr";
+} {
+  if (provider.providerId === "sf3d-http") {
+    return { outputFormat: "glb", texturePolicy: "pbr" };
+  }
+  return { outputFormat: "ply", texturePolicy: "none" };
+}
+
+function normalizeDimensionName(value: string): string {
+  return value.trim().toLowerCase().replace(/[.\s-]+/g, "_");
+}
+
+function targetDimensionPriority(kind: MeshAssetKind): string[] {
+  if (kind === "figurine" || kind === "character") {
+    return ["target_height", "overall_height", "height", "target_length", "overall_length", "length"];
+  }
+  return [
+    "target_length",
+    "overall_length",
+    "length",
+    "target_width",
+    "overall_width",
+    "width",
+    "target_height",
+    "overall_height",
+    "height",
+  ];
+}
+
+function chooseTargetDimension(
+  designIntent: Record<string, unknown>,
+  kind: MeshAssetKind,
+): MeshTargetDimension | null {
+  const known = designIntent.known_dimensions;
+  if (!Array.isArray(known)) return null;
+  const trustworthy = known.flatMap((value): MeshTargetDimension[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const dimension = value as Record<string, unknown>;
+    const source = String(dimension.source ?? "");
+    const unit = String(dimension.unit ?? "");
+    const numeric = dimension.value;
+    const name = String(dimension.name ?? "");
+    if (source !== "user" && source !== "measured_reference") return [];
+    if (unit !== "mm" || typeof numeric !== "number" || !Number.isFinite(numeric) || numeric <= 0) {
+      return [];
+    }
+    if (!name) return [];
+    return [{ name, value: numeric, unit: "mm" }];
+  });
+  const priorities = targetDimensionPriority(kind);
+  for (const preferred of priorities) {
+    const found = trustworthy.find(
+      (dimension) => normalizeDimensionName(dimension.name) === preferred,
+    );
+    if (found) return found;
+  }
+  return trustworthy[0] ?? null;
+}
+
+function consumedInputViews(
+  generated: MeshProviderOutput,
+  available: MeshInputView[],
+): MeshInputView[] {
+  if (!Array.isArray(generated.consumedViews) || generated.consumedViews.length === 0) {
+    throw new Error("mesh provider must report at least one consumed turnaround view");
+  }
+  const unique = new Set(generated.consumedViews);
+  if (unique.size !== generated.consumedViews.length) {
+    throw new Error("mesh provider reported duplicate consumed turnaround views");
+  }
+  const byName = new Map(available.map((view) => [view.view, view]));
+  return generated.consumedViews.map((viewName) => {
+    const view = byName.get(viewName);
+    if (!view) {
+      throw new Error(`mesh provider reported unknown consumed turnaround view ${viewName}`);
+    }
+    return view;
+  });
 }
 
 export class MeshRuntime {
@@ -93,7 +203,7 @@ export class MeshRuntime {
     mkdirSync(this.#dataDir, { recursive: true });
     this.#meshStore = options.meshStore ?? new MeshStore(join(this.#dataDir, "mesh.sqlite"));
     this.#visualStore = options.visualStore ?? new VisualStore(join(this.#dataDir, "visual.sqlite"));
-    this.#provider = options.provider ?? new DeterministicMeshProvider();
+    this.#provider = options.provider ?? createMeshProviderFromEnv();
   }
 
   providerInfo(): Record<string, unknown> {
@@ -101,14 +211,21 @@ export class MeshRuntime {
       provider_id: this.#provider.providerId,
       model_id: this.#provider.modelId,
       model_version: this.#provider.modelVersion,
+      requires_target_dimension: this.#provider.requiresTargetDimension,
     };
   }
 
   async generateMesh(input: GenerateMeshInput): Promise<Record<string, unknown>> {
     const projectId = requireProjectId(input.projectId);
-    const turnaround = this.#visualStore.getDocument(projectId, "turnaround_set", input.turnaroundRevisionId);
+    const turnaround = this.#visualStore.getDocument(
+      projectId,
+      "turnaround_set",
+      input.turnaroundRevisionId,
+    );
     if (turnaround.status !== "accepted" && turnaround.status !== "needs_review") {
-      throw new Error(`turnaround ${String(turnaround.revision_id)} is not eligible for mesh generation`);
+      throw new Error(
+        `turnaround ${String(turnaround.revision_id)} is not eligible for mesh generation`,
+      );
     }
     const consistency = turnaround.consistency as Record<string, unknown> | undefined;
     if (!consistency || consistency.pass !== true) {
@@ -116,23 +233,41 @@ export class MeshRuntime {
     }
     const sourceConceptRevisionId = String(turnaround.source_concept_revision_id ?? "");
     if (!sourceConceptRevisionId) throw new Error("turnaround is missing source concept provenance");
-    const sourceConcept = this.#visualStore.getDocument(projectId, "visual_concept", sourceConceptRevisionId);
+    const sourceConcept = this.#visualStore.getDocument(
+      projectId,
+      "visual_concept",
+      sourceConceptRevisionId,
+    );
     const sourceIntentRevisionId = String(sourceConcept.source_intent_revision_id ?? "");
-    if (!sourceIntentRevisionId) throw new Error("visual concept is missing source design intent provenance");
-    this.#visualStore.getDocument(projectId, "design_intent", sourceIntentRevisionId);
+    if (!sourceIntentRevisionId) {
+      throw new Error("visual concept is missing source design intent provenance");
+    }
+    const sourceIntent = this.#visualStore.getDocument(
+      projectId,
+      "design_intent",
+      sourceIntentRevisionId,
+    );
+    const targetDimension = chooseTargetDimension(sourceIntent, input.assetKind);
+    if (this.#provider.requiresTargetDimension && !targetDimension) {
+      throw new Error(
+        "MESH_SCALE_REFERENCE_REQUIRED: production mesh generation requires a user or measured mm dimension",
+      );
+    }
 
     const viewRecords = turnaround.views;
     if (!Array.isArray(viewRecords) || viewRecords.length < 4) {
       throw new Error("mesh generation requires at least four turnaround views");
     }
 
-    const views = viewRecords.map((value) => {
+    const views: MeshInputView[] = viewRecords.map((value) => {
       if (typeof value !== "object" || value === null) throw new Error("invalid turnaround view");
       const view = value as Record<string, unknown>;
       const artifactId = String(view.artifact_id);
       const artifact = this.#visualStore.getArtifact(projectId, artifactId);
       const bytes = new Uint8Array(readFileSync(artifact.path));
-      if (digest(bytes) !== artifact.sha256) throw new Error(`turnaround artifact checksum mismatch ${artifactId}`);
+      if (digest(bytes) !== artifact.sha256) {
+        throw new Error(`turnaround artifact checksum mismatch ${artifactId}`);
+      }
       return {
         view: String(view.view),
         sha256: artifact.sha256,
@@ -143,14 +278,18 @@ export class MeshRuntime {
 
     const requestRevisionId = this.#meshStore.nextRevisionId(projectId, "mesh_request");
     const now = new Date().toISOString();
+    const defaults = providerDefaults(this.#provider);
     const request: MeshGenerationRequest = {
       projectId,
       turnaroundRevisionId: String(turnaround.revision_id),
       assetKind: input.assetKind,
       qualityTier: input.qualityTier ?? "standard",
-      outputFormat: input.outputFormat ?? "ply",
-      texturePolicy: input.texturePolicy ?? "none",
-      ...(input.targetTriangleCount === undefined ? {} : { targetTriangleCount: input.targetTriangleCount }),
+      outputFormat: input.outputFormat ?? defaults.outputFormat,
+      texturePolicy: input.texturePolicy ?? defaults.texturePolicy,
+      targetDimensions: targetDimension ? [targetDimension] : [],
+      ...(input.targetTriangleCount === undefined
+        ? {}
+        : { targetTriangleCount: input.targetTriangleCount }),
     };
     const requestDoc: Record<string, unknown> = {
       schema_version: "0.1.0",
@@ -161,6 +300,11 @@ export class MeshRuntime {
       quality_tier: request.qualityTier,
       output_format: request.outputFormat,
       texture_policy: request.texturePolicy,
+      target_dimensions: request.targetDimensions.map((dimension) => ({
+        name: dimension.name,
+        value: dimension.value,
+        unit: dimension.unit,
+      })),
       target_triangle_count: request.targetTriangleCount ?? null,
       preserve_semantic_regions: true,
       notes: [],
@@ -182,7 +326,13 @@ export class MeshRuntime {
         media_type: view.mediaType,
         revision_ref: request.turnaroundRevisionId,
       })),
-      toolVersions: [{ component: this.#provider.providerId, version: this.#provider.modelId, digest: null }],
+      toolVersions: [
+        {
+          component: this.#provider.providerId,
+          version: this.#provider.modelVersion ?? this.#provider.modelId,
+          digest: null,
+        },
+      ],
       now,
     });
     this.#meshStore.saveJob(job);
@@ -191,12 +341,26 @@ export class MeshRuntime {
 
     try {
       const generated = await this.#provider.generate({ request, turnaround, views });
-      if (generated.format !== request.outputFormat) throw new Error("mesh provider output format differs from request");
+      if (generated.format !== request.outputFormat) {
+        throw new Error("mesh provider output format differs from request");
+      }
       validateMeshBytes(generated.format, generated.bytes);
-      if (!Number.isInteger(generated.vertexCount) || generated.vertexCount < 0) throw new Error("invalid vertex count");
-      if (!Number.isInteger(generated.triangleCount) || generated.triangleCount < 0) throw new Error("invalid triangle count");
+      if (!Number.isInteger(generated.vertexCount) || generated.vertexCount < 0) {
+        throw new Error("invalid vertex count");
+      }
+      if (!Number.isInteger(generated.triangleCount) || generated.triangleCount < 0) {
+        throw new Error("invalid triangle count");
+      }
+      const consumedViews = consumedInputViews(generated, views);
+      const consumedDigests = consumedViews.map((view) => view.sha256);
 
-      const meshArtifact = this.#storeMesh(projectId, generated.format, generated.mediaType, generated.bytes, now);
+      const meshArtifact = this.#storeMesh(
+        projectId,
+        generated.format,
+        generated.mediaType,
+        generated.bytes,
+        now,
+      );
       const meshRevisionId = this.#meshStore.nextRevisionId(projectId, "mesh_artifact");
       const meshDoc: Record<string, unknown> = {
         schema_version: "0.1.0",
@@ -215,12 +379,13 @@ export class MeshRuntime {
           self_intersections_detected: generated.topology.selfIntersectionsDetected,
           notes: generated.topology.notes,
         },
+        consumed_views: consumedViews.map((view) => view.view),
         provenance: {
           provider: this.#provider.providerId,
           model: this.#provider.modelId,
           model_version: this.#provider.modelVersion,
           job_id: job.job_id,
-          input_artifact_sha256: views.map((view) => view.sha256),
+          input_artifact_sha256: consumedDigests,
           generated_at: now,
         },
         status: "generated",
@@ -241,7 +406,11 @@ export class MeshRuntime {
         units: "mm",
         style: null,
         pose: null,
-        target_dimensions: [],
+        target_dimensions: request.targetDimensions.map((dimension) => ({
+          name: dimension.name,
+          value: dimension.value,
+          unit: dimension.unit,
+        })),
         geometry_artifact: {
           artifact_id: meshArtifact.artifactId,
           sha256: meshArtifact.sha256,
@@ -251,14 +420,14 @@ export class MeshRuntime {
           triangle_count: generated.triangleCount,
         },
         regions: [],
-        print_constraints: printDefaults(request.assetKind),
+        print_constraints: printDefaults(request.assetKind, targetDimension),
         provenance: {
           generator_kind: "mesh_provider",
           provider: this.#provider.providerId,
           model: this.#provider.modelId,
           model_version: this.#provider.modelVersion,
           job_id: job.job_id,
-          input_artifact_sha256: views.map((view) => view.sha256),
+          input_artifact_sha256: consumedDigests,
         },
         status: "generated",
       };
@@ -278,7 +447,12 @@ export class MeshRuntime {
       ];
       job = succeedM1Job(job, outputs, now);
       this.#meshStore.saveJob(job);
-      return { job, mesh_request: requestDoc, mesh_artifact: meshDoc, asset_ir: assetDoc };
+      return {
+        job,
+        mesh_request: requestDoc,
+        mesh_artifact: meshDoc,
+        asset_ir: assetDoc,
+      };
     } catch (error) {
       job = failM1Job(job, "MESH_GENERATION_FAILED", new Date().toISOString());
       this.#meshStore.saveJob(job);
@@ -312,7 +486,15 @@ export class MeshRuntime {
     mkdirSync(directory, { recursive: true });
     const path = join(directory, `${artifactId}.${extension(format)}`);
     writeFileSync(path, Buffer.from(bytes), { flag: "wx" });
-    const artifact: StoredMeshArtifact = { projectId, artifactId, path, sha256, format, mediaType, createdAt };
+    const artifact: StoredMeshArtifact = {
+      projectId,
+      artifactId,
+      path,
+      sha256,
+      format,
+      mediaType,
+      createdAt,
+    };
     this.#meshStore.saveArtifact(artifact);
     return artifact;
   }

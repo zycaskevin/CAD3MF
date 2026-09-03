@@ -24,11 +24,22 @@ function schemaText(relativePath: string): string {
 }
 
 function result(output: JsonObject) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(output) }], structuredContent: output };
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(output) }],
+    structuredContent: output,
+  };
 }
 
 function failure(error: unknown) {
-  return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] };
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text" as const,
+        text: error instanceof Error ? error.message : String(error),
+      },
+    ],
+  };
 }
 
 export function registerMeshM1(
@@ -38,27 +49,62 @@ export function registerMeshM1(
   const runtime = options.runtime ?? new MeshRuntime();
 
   for (const [name, uri, path, title] of [
-    ["mesh-generation-request-schema", "caddesk://schema/mesh-generation-request/0.1.0", "packages/mesh-generation/schemas/mesh-generation-request-0.1.0.json", "CAD3MF Mesh Generation Request 0.1.0"],
-    ["mesh-artifact-schema", "caddesk://schema/mesh-artifact/0.1.0", "packages/mesh-generation/schemas/mesh-artifact-0.1.0.json", "CAD3MF Mesh Artifact 0.1.0"],
-    ["asset-ir-schema-m1", "caddesk://schema/asset-ir/0.1.0", "packages/asset-ir/schemas/asset-ir-0.1.0.json", "CAD3MF Asset-IR 0.1.0"],
+    [
+      "mesh-generation-request-schema",
+      "caddesk://schema/mesh-generation-request/0.1.0",
+      "packages/mesh-generation/schemas/mesh-generation-request-0.1.0.json",
+      "CAD3MF Mesh Generation Request 0.1.0",
+    ],
+    [
+      "mesh-artifact-schema",
+      "caddesk://schema/mesh-artifact/0.1.0",
+      "packages/mesh-generation/schemas/mesh-artifact-0.1.0.json",
+      "CAD3MF Mesh Artifact 0.1.0",
+    ],
+    [
+      "asset-ir-schema-m1",
+      "caddesk://schema/asset-ir/0.1.0",
+      "packages/asset-ir/schemas/asset-ir-0.1.0.json",
+      "CAD3MF Asset-IR 0.1.0",
+    ],
   ] as const) {
-    server.registerResource(name, uri, { title, mimeType: "application/schema+json" }, async (resourceUri) => ({
-      contents: [{ uri: resourceUri.href, mimeType: "application/schema+json", text: schemaText(path) }],
-    }));
+    server.registerResource(
+      name,
+      uri,
+      { title, mimeType: "application/schema+json" },
+      async (resourceUri) => ({
+        contents: [
+          {
+            uri: resourceUri.href,
+            mimeType: "application/schema+json",
+            text: schemaText(path),
+          },
+        ],
+      }),
+    );
   }
 
   server.registerTool(
     "generate_mesh",
     {
       title: "Generate 3D mesh asset",
-      description: "Use this when an approved multi-view turnaround should be converted into a provider-generated 3D mesh and canonical Asset-IR. This does not claim printability.",
+      description:
+        "Use this when an approved multi-view turnaround should be converted into a provider-generated 3D mesh and canonical Asset-IR. The configured provider chooses its supported view inputs and must report which canonical views it actually consumed. This does not claim printability.",
       inputSchema: z.object({
         project_id: z.string().min(1).max(128),
         turnaround_revision_id: z.string().min(1).max(128).optional(),
-        asset_kind: z.enum(["figurine", "character", "vehicle_shell", "hard_surface_shell", "product_shell", "decorative_part", "other"]),
-        quality_tier: z.enum(["preview", "standard", "high"]).default("standard"),
-        output_format: z.enum(["glb", "obj", "ply"]).default("ply"),
-        texture_policy: z.enum(["none", "vertex_color", "pbr"]).default("none"),
+        asset_kind: z.enum([
+          "figurine",
+          "character",
+          "vehicle_shell",
+          "hard_surface_shell",
+          "product_shell",
+          "decorative_part",
+          "other",
+        ]),
+        quality_tier: z.enum(["preview", "standard", "high"]).optional(),
+        output_format: z.enum(["glb", "obj", "ply"]).optional(),
+        texture_policy: z.enum(["none", "vertex_color", "pbr"]).optional(),
         target_triangle_count: z.number().int().min(100).max(5000000).nullable().optional(),
       }),
       outputSchema: meshOutputSchema,
@@ -73,16 +119,28 @@ export function registerMeshM1(
         "openai/toolInvocation/invoked": "3D mesh generated",
       },
     },
-    async ({ project_id, turnaround_revision_id, asset_kind, quality_tier, output_format, texture_policy, target_triangle_count }) => {
+    async ({
+      project_id,
+      turnaround_revision_id,
+      asset_kind,
+      quality_tier,
+      output_format,
+      texture_policy,
+      target_triangle_count,
+    }) => {
       try {
         const output = await runtime.generateMesh({
           projectId: project_id,
-          ...(turnaround_revision_id === undefined ? {} : { turnaroundRevisionId: turnaround_revision_id }),
+          ...(turnaround_revision_id === undefined
+            ? {}
+            : { turnaroundRevisionId: turnaround_revision_id }),
           assetKind: asset_kind,
-          qualityTier: quality_tier,
-          outputFormat: output_format,
-          texturePolicy: texture_policy,
-          ...(target_triangle_count === undefined ? {} : { targetTriangleCount: target_triangle_count }),
+          ...(quality_tier === undefined ? {} : { qualityTier: quality_tier }),
+          ...(output_format === undefined ? {} : { outputFormat: output_format }),
+          ...(texture_policy === undefined ? {} : { texturePolicy: texture_policy }),
+          ...(target_triangle_count === undefined
+            ? {}
+            : { targetTriangleCount: target_triangle_count }),
         });
         return result({ ...output, provider: runtime.providerInfo() });
       } catch (error) {
@@ -101,7 +159,12 @@ export function registerMeshM1(
         revision_id: z.string().min(1).max(128).optional(),
       }),
       outputSchema: jsonObjectSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ project_id, revision_id }) => {
       try {
@@ -119,7 +182,12 @@ export function registerMeshM1(
       description: "Read a persisted M1-003 mesh-generation job manifest.",
       inputSchema: z.object({ job_id: z.string().min(1).max(128) }),
       outputSchema: jsonObjectSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ job_id }) => {
       try {
