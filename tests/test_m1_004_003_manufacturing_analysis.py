@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,17 +9,17 @@ import trimesh
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKER = ROOT / "services" / "mesh-worker"
+if str(WORKER) not in sys.path:
+    sys.path.insert(0, str(WORKER))
+
+import manufacturing_analysis as engine  # noqa: E402
+
 SCHEMA = (
     ROOT
     / "packages/printable-mesh/schemas/manufacturing-geometry-analysis-report-0.1.0.json"
 )
-ENGINE_PATH = ROOT / "services/mesh-worker/manufacturing_analysis.py"
 SHA = "b" * 64
-
-spec = importlib.util.spec_from_file_location("cad3mf_manufacturing_analysis", ENGINE_PATH)
-assert spec is not None and spec.loader is not None
-engine = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(engine)
 
 
 def load_schema() -> dict:
