@@ -71,6 +71,10 @@ def repair(mesh: trimesh.Trimesh, required_checks=None):
     )
 
 
+def operation(report: dict, name: str) -> dict:
+    return next(item for item in report["repair_operations"] if item["operation"] == name)
+
+
 @pytest.mark.parametrize("path", [REQUEST_SCHEMA, REPORT_SCHEMA])
 def test_m1_004_schemas_are_valid_draft_2020_12(path: Path) -> None:
     Draft202012Validator.check_schema(load(path))
@@ -114,6 +118,7 @@ def test_small_hole_is_filled_without_scale_drift() -> None:
     assert report["checks"]["closed_boundary"]["value"] == 0
     assert report["metric_invariant"]["max_extent_drift_mm"] <= 0.001
     assert report["appearance_rebake_required"] is True
+    assert operation(report, "fill_small_holes")["status"] == "applied"
     Draft202012Validator(load(REPORT_SCHEMA)).validate(report)
 
 
@@ -131,6 +136,55 @@ def test_duplicate_faces_and_unreferenced_vertices_are_audited_and_removed() -> 
     assert report["output_metrics"]["unreferenced_vertex_count"] == 0
     assert report["metric_invariant"]["preserved"] is True
     assert report["status"] == "repaired_topology_valid"
+
+
+def test_component_count_has_no_graph_engine_dependency() -> None:
+    left = trimesh.creation.box(extents=[10.0, 10.0, 10.0])
+    right = trimesh.creation.box(extents=[10.0, 10.0, 10.0])
+    right.apply_translation([30.0, 0.0, 0.0])
+    offset = len(left.vertices)
+    vertices = np.vstack((left.vertices, right.vertices))
+    faces = np.vstack((left.faces, right.faces + offset))
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    metrics = engine.diagnose_mesh(mesh)
+
+    assert metrics["component_count"] == 2
+    assert metrics["boundary_edge_count"] == 0
+    assert metrics["nonmanifold_edge_count"] == 0
+
+
+def test_local_winding_flip_is_repaired_without_texture_rebake_flag() -> None:
+    box = trimesh.creation.box(extents=[20.0, 30.0, 40.0])
+    faces = np.asarray(box.faces).copy()
+    faces[0] = faces[0][::-1]
+    dirty = trimesh.Trimesh(vertices=box.vertices.copy(), faces=faces, process=False)
+    assert dirty.is_winding_consistent is False
+
+    repaired, report = repair(dirty)
+
+    assert repaired.is_winding_consistent is True
+    assert report["checks"]["winding_consistent"]["status"] == "pass"
+    assert operation(report, "fix_normals")["status"] == "applied"
+    assert report["appearance_rebake_required"] is False
+    assert report["metric_invariant"]["preserved"] is True
+
+
+def test_large_boundary_loop_is_not_aggressively_filled() -> None:
+    mesh = trimesh.creation.icosphere(subdivisions=1, radius=20.0)
+    keep = ~np.any(np.asarray(mesh.faces) == 0, axis=1)
+    mesh.update_faces(keep)
+    mesh.remove_unreferenced_vertices()
+    assert mesh.is_watertight is False
+
+    repaired, report = repair(mesh)
+
+    assert repaired.is_watertight is False
+    assert report["status"] == "needs_robust_repair"
+    assert report["checks"]["closed_boundary"]["status"] == "fail"
+    fill = operation(report, "fill_small_holes")
+    assert fill["status"] == "no_change"
+    assert "exceed 4 vertices" in (fill["note"] or "")
 
 
 def test_unimplemented_required_checks_block_validation_claim() -> None:
