@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,13 +11,13 @@ pytest.importorskip("fcl")
 pytest.importorskip("point_cloud_utils")
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINE_PATH = ROOT / "services/mesh-worker/manufacturing_analysis.py"
-SHA = "c" * 64
+WORKER = ROOT / "services" / "mesh-worker"
+if str(WORKER) not in sys.path:
+    sys.path.insert(0, str(WORKER))
 
-spec = importlib.util.spec_from_file_location("cad3mf_manufacturing_analysis_native", ENGINE_PATH)
-assert spec is not None and spec.loader is not None
-engine = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(engine)
+import manufacturing_analysis as engine  # noqa: E402
+
+SHA = "c" * 64
 
 
 def analyze(mesh, *, thickness=1.0, feature=0.8):
