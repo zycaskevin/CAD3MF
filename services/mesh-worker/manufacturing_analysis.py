@@ -203,7 +203,9 @@ def _coplanar_intersection_points(
     return _unique_points(points, tolerance)
 
 
-def _project_point_for_triangle(point: np.ndarray, triangle: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _project_point_for_triangle(
+    point: np.ndarray, triangle: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
     drop_axis = int(np.argmax(np.abs(normal)))
     return np.delete(point, drop_axis), np.delete(triangle, drop_axis, axis=1)
