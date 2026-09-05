@@ -59,7 +59,24 @@ A later edit such as `magnet_diameter: 6.2 -> 8.0` changes a parameter and rebui
 - HTTP E2E with the official MCP client
 - public HTTP tool outputs do not expose server filesystem paths
 
-The remaining product validation is a **real visual E2E inside ChatGPT Developer Mode** against a reachable HTTPS deployment. The local/runtime contract is already proven; deployment is the next boundary.
+### M0-D — Live ChatGPT Deployment: PASS
+
+- reachable HTTPS MCP origin at `https://cad3mf.nancyai.dev`
+- CAD3MF tools callable directly from a normal ChatGPT conversation
+- interactive viewer rendered in ChatGPT for `m0d-magnet-module-live` revision `r3`
+- revisioned parameter edit proven through `r1 -> r2 -> r3`; `r3` uses a 4 mm magnet diameter
+- geometry validation PASS for `r3` as one valid solid
+- public 3MF artifact returned as `model/3mf` with sandbox-safe CORS
+- remote `r3` 3MF SHA-256 matches the persisted server artifact exactly
+
+### M0-E — Physical Acceptance Receipt Schema: PASS
+
+- backend-neutral receipt model for real print evidence
+- receipt binds project/revision to the exact exported 3MF SHA-256
+- records printer, material, optional slicer profile, measured dimensions, tolerances, and fit result
+- overall PASS is derived from measured evidence; the receipt never mutates CAD-IR
+
+The remaining v0.1 release gate is **the physical print itself**: import the exported 3MF into the Bambu workflow, print it on the target printer/material profile, measure critical dimensions, and record the resulting receipt.
 
 ## Golden model
 
@@ -83,7 +100,7 @@ services/
 packages/
   cad-ir/                # canonical CAD intermediate representation
   cad-compiler/          # backend-neutral compiler contracts
-  manufacturing/         # printability rules (later milestone)
+  manufacturing/         # physical print receipts + later printability policy
   shared/
 adapters/
   cadquery/              # M0 primary backend

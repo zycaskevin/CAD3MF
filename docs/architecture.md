@@ -57,6 +57,10 @@ Canonical, backend-neutral design contract. It must not import CadQuery, OpenCas
 
 Backend-neutral compiler helpers and safe resolution rules. CAD-IR 0.1 permits numeric literals and exact `$parameter` references only.
 
+### `packages/manufacturing`
+
+Owns backend-neutral manufacturing evidence and later printability policy. M0-E includes only the physical print receipt schema: immutable 3MF hash binding, printer/material metadata, dimensional measurements, tolerances, fit result, and derived PASS/FAIL. A manufacturing receipt is evidence and never becomes CAD design authority.
+
 ### `adapters/cadquery`
 
 Translates supported CAD-IR features into CadQuery operations. Backend-specific geometry code stays here.
@@ -151,4 +155,6 @@ These are explicit product boundaries. Each later capability should expand behin
 
 ## M0 completion boundary
 
-The deterministic backend/runtime and ChatGPT App contract are proven in CI. A final user-facing visual acceptance still requires deploying `/mcp` and artifact routes behind a reachable HTTPS origin and connecting that endpoint in ChatGPT Developer Mode.
+The deterministic backend/runtime, ChatGPT App contract, public HTTPS deployment, and live ChatGPT tool/viewer path are proven. On 2026-09-05, ChatGPT directly inspected, rendered, validated, and exported `m0d-magnet-module-live` revision `r3` through the deployed CAD3MF MCP service. The returned public 3MF matched the persisted server artifact byte-for-byte by SHA-256.
+
+The remaining v0.1 boundary is physical manufacturing acceptance: print a canonical revision on the target Bambu H2C / PETG workflow, measure the critical dimensions and fit, and record the result as a manufacturing receipt. This physical result is evidence about manufacturability; it does not replace CAD-IR as the design authority.
