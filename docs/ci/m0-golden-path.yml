@@ -38,8 +38,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: services/mcp-server/package.json
+
+      - name: Install widget dependencies
+        working-directory: apps/chatgpt-plugin
+        run: npm install --no-audit --no-fund
+
+      - name: Build and check ChatGPT widget
+        working-directory: apps/chatgpt-plugin
+        run: |
+          npm run build
+          npm run check
 
       - name: Install MCP dependencies
         working-directory: services/mcp-server
@@ -49,15 +57,28 @@ jobs:
         working-directory: services/mcp-server
         run: npm run typecheck
 
-      - name: MCP E2E
+      - name: MCP stdio E2E
         working-directory: services/mcp-server
         env:
           CAD3MF_PYTHON: python
         run: npm test
+
+      - name: MCP HTTP + ChatGPT App E2E
+        working-directory: services/mcp-server
+        env:
+          CAD3MF_PYTHON: python
+        run: npm run test:http
 
       - name: Upload golden artifacts
         uses: actions/upload-artifact@v4
         with:
           name: cad3mf-m0-golden
           path: dist/
+          if-no-files-found: error
+
+      - name: Upload ChatGPT widget
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad3mf-chatgpt-widget
+          path: apps/chatgpt-plugin/dist/caddesk-viewer.html
           if-no-files-found: error

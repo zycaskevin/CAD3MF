@@ -1,0 +1,80 @@
+name: cad3mf-m0d
+
+services:
+  mcp:
+    image: ${CAD3MF_RUNTIME_IMAGE:-catdesk-local:0.3.0}
+    platform: linux/arm64
+    container_name: cad3mf-m0d-mcp
+    user: "${CAD3MF_UID:-1000}:${CAD3MF_GID:-1000}"
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    working_dir: /workspace/CAD3MF/services/mcp-server
+    entrypoint:
+      - /usr/local/bin/npm
+    command:
+      - run
+      - start:http
+    environment:
+      HOME: /tmp
+      NPM_CONFIG_UPDATE_NOTIFIER: "false"
+      CAD3MF_DATA_DIR: /workspace/cad3mf-m0d-data
+      CAD3MF_REPO_ROOT: /workspace/CAD3MF
+      CAD3MF_PYTHON: /workspace/CAD3MF/.venv/bin/python
+      CAD3MF_HOST: 127.0.0.1
+      CAD3MF_PORT: ${CAD3MF_ORIGIN_PORT:-18787}
+      CAD3MF_PUBLIC_BASE_URL: ${CAD3MF_PUBLIC_BASE_URL:?set CAD3MF_PUBLIC_BASE_URL}
+      CAD3MF_ALLOWED_ORIGINS: https://chatgpt.com,https://chat.openai.com,https://web-sandbox.oaiusercontent.com
+      LD_LIBRARY_PATH: /workspace/CAD3MF/.tools/sysroot/usr/lib/aarch64-linux-gnu
+    volumes:
+      - ${CAD3MF_REPO_DIR:?set CAD3MF_REPO_DIR}:/workspace/CAD3MF:ro
+      - ${CAD3MF_DATA_DIR_HOST:?set CAD3MF_DATA_DIR_HOST}:/workspace/cad3mf-m0d-data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:${CAD3MF_ORIGIN_PORT:-18787}/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  tunnel:
+    image: ${CAD3MF_RUNTIME_IMAGE:-catdesk-local:0.3.0}
+    platform: linux/arm64
+    container_name: cad3mf-m0d-tunnel
+    user: "${CAD3MF_UID:-1000}:${CAD3MF_GID:-1000}"
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    depends_on:
+      mcp:
+        condition: service_healthy
+    entrypoint:
+      - /workspace/CAD3MF/.tools/bin/cloudflared
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --config
+      - /catdesk-home/.cloudflared/cad3mf-m0d.yml
+      - run
+    volumes:
+      - ${CAD3MF_REPO_DIR:?set CAD3MF_REPO_DIR}:/workspace/CAD3MF:ro
+      - ${CAD3MF_HOME_DIR:?set CAD3MF_HOME_DIR}:/catdesk-home:ro

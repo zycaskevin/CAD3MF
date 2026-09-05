@@ -14,6 +14,7 @@ import type {
 import { CadWorker } from "./worker.js";
 
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export type ArtifactKind = "preview" | "step" | "stl" | "3mf";
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -152,14 +153,12 @@ export class CadDeskRuntime {
   }
 
   renderDesign(projectId: string, revisionId?: string): JsonObject {
-    const revision = this.#store.getRevision(requireProjectId(projectId), revisionId);
-    const path = revision.artifacts.preview;
-    if (!path) throw new Error("revision has no preview artifact");
+    const artifact = this.artifactLocation(projectId, "preview", revisionId);
     return {
-      project_id: revision.projectId,
-      revision_id: revision.revisionId,
-      preview_path: path,
-      preview_uri: pathToFileURL(resolve(path)).href,
+      project_id: artifact.projectId,
+      revision_id: artifact.revisionId,
+      preview_path: artifact.path,
+      preview_uri: pathToFileURL(resolve(artifact.path)).href,
     };
   }
 
@@ -173,16 +172,25 @@ export class CadDeskRuntime {
   }
 
   exportDesign(projectId: string, format: "step" | "stl" | "3mf", revisionId?: string): JsonObject {
-    const revision = this.#store.getRevision(requireProjectId(projectId), revisionId);
-    const path = revision.artifacts[format];
-    if (!path) throw new Error(`revision has no ${format} artifact`);
+    const artifact = this.artifactLocation(projectId, format, revisionId);
     return {
-      project_id: revision.projectId,
-      revision_id: revision.revisionId,
+      project_id: artifact.projectId,
+      revision_id: artifact.revisionId,
       format,
-      artifact_path: path,
-      artifact_uri: pathToFileURL(resolve(path)).href,
+      artifact_path: artifact.path,
+      artifact_uri: pathToFileURL(resolve(artifact.path)).href,
     };
+  }
+
+  artifactLocation(
+    projectId: string,
+    kind: ArtifactKind,
+    revisionId?: string,
+  ): { projectId: string; revisionId: string; path: string } {
+    const revision = this.#store.getRevision(requireProjectId(projectId), revisionId);
+    const path = revision.artifacts[kind];
+    if (!path) throw new Error(`revision has no ${kind} artifact`);
+    return { projectId: revision.projectId, revisionId: revision.revisionId, path };
   }
 
   cadIrSchema(): JsonObject {

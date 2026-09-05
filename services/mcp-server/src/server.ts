@@ -1,8 +1,53 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
 import { CadDeskRuntime } from "./runtime.js";
 import type { JsonObject } from "./types.js";
+
+export const VIEWER_RESOURCE_URI = "ui://caddesk/viewer/v1.html";
+export const VIEWER_MIME_TYPE = "text/html;profile=mcp-app";
+
+const jsonObjectSchema = z.record(z.string(), z.unknown());
+const parametersSchema = z.record(z.string(), z.number());
+const snapshotSchema = z.object({
+  project_id: z.string(),
+  revision_id: z.string(),
+  parent_revision_id: z.string().nullable(),
+  parameters: parametersSchema,
+  geometry_summary: jsonObjectSchema,
+  viewer: z.object({ preview_url: z.string().url() }),
+  artifact_urls: z.object({
+    step: z.string().url(),
+    stl: z.string().url(),
+    "3mf": z.string().url(),
+  }),
+});
+
+const inspectSchema = z.object({
+  project_id: z.string(),
+  revision_id: z.string(),
+  parent_revision_id: z.string().nullable(),
+  parameters: parametersSchema,
+  feature_tree: z.array(z.unknown()),
+  geometry_summary: jsonObjectSchema,
+});
+
+const validateSchema = z.object({
+  project_id: z.string(),
+  revision_id: z.string(),
+  validation: jsonObjectSchema,
+});
+
+const exportSchema = z.object({
+  project_id: z.string(),
+  revision_id: z.string(),
+  format: z.enum(["step", "stl", "3mf"]),
+  artifact_url: z.string().url(),
+});
 
 function result(output: JsonObject) {
   return {
@@ -24,8 +69,58 @@ const revisionSelector = {
   revision_id: z.string().min(1).optional(),
 };
 
-export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
+function artifactUrl(
+  publicBaseUrl: string,
+  projectId: string,
+  revisionId: string,
+  kind: "preview" | "step" | "stl" | "3mf",
+): string {
+  const base = publicBaseUrl.endsWith("/") ? publicBaseUrl.slice(0, -1) : publicBaseUrl;
+  return `${base}/artifacts/${encodeURIComponent(projectId)}/${encodeURIComponent(revisionId)}/${kind}`;
+}
+
+function publicSnapshot(output: JsonObject, publicBaseUrl: string): JsonObject {
+  const projectId = String(output.project_id);
+  const revisionId = String(output.revision_id);
+  return {
+    project_id: projectId,
+    revision_id: revisionId,
+    parent_revision_id: output.parent_revision_id ?? null,
+    parameters: output.parameters ?? {},
+    geometry_summary: output.geometry_summary ?? {},
+    viewer: { preview_url: artifactUrl(publicBaseUrl, projectId, revisionId, "preview") },
+    artifact_urls: {
+      step: artifactUrl(publicBaseUrl, projectId, revisionId, "step"),
+      stl: artifactUrl(publicBaseUrl, projectId, revisionId, "stl"),
+      "3mf": artifactUrl(publicBaseUrl, projectId, revisionId, "3mf"),
+    },
+  };
+}
+
+function viewerHtmlPath(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const repoRoot = resolve(process.env.CAD3MF_REPO_ROOT ?? resolve(moduleDir, "../../.."));
+  return resolve(repoRoot, "apps/chatgpt-plugin/dist/caddesk-viewer.html");
+}
+
+function uiToolMeta() {
+  return {
+    ui: { resourceUri: VIEWER_RESOURCE_URI, visibility: ["model", "app"] },
+    "openai/outputTemplate": VIEWER_RESOURCE_URI,
+  };
+}
+
+export interface CadDeskServerOptions {
+  publicBaseUrl?: string;
+}
+
+export function createCadDeskServer(
+  runtime = new CadDeskRuntime(),
+  options: CadDeskServerOptions = {},
+): McpServer {
   const server = new McpServer({ name: "cad3mf", version: "0.1.0" });
+  const publicBaseUrl = options.publicBaseUrl;
+  const resourceOrigin = new URL(publicBaseUrl ?? "http://127.0.0.1:8787").origin;
 
   server.registerResource(
     "cad-ir-schema",
@@ -36,7 +131,43 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
       mimeType: "application/schema+json",
     },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "application/schema+json", text: JSON.stringify(runtime.cadIrSchema()) }],
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/schema+json",
+          text: JSON.stringify(runtime.cadIrSchema()),
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "caddesk-viewer",
+    VIEWER_RESOURCE_URI,
+    {
+      title: "CADDesk interactive viewer",
+      description: "Interactive Three.js viewer for CAD3MF project revisions.",
+      mimeType: VIEWER_MIME_TYPE,
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: VIEWER_MIME_TYPE,
+          text: readFileSync(viewerHtmlPath(), "utf8"),
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              csp: {
+                connectDomains: [resourceOrigin],
+                resourceDomains: [resourceOrigin],
+              },
+            },
+            "openai/widgetDescription":
+              "Interactive parametric CAD viewer with revision, validation, parameters, and export actions.",
+          },
+        },
+      ],
     }),
   );
 
@@ -45,7 +176,7 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     {
       title: "Create CAD design",
       description:
-        "Create revision r1 from a validated CAD-IR document. The host model should translate the user's natural-language design intent into CAD-IR 0.1; read caddesk://schema/cad-ir/0.1 for the canonical schema. Arbitrary Python is never accepted.",
+        "Use this when the user wants a new parametric CAD project. Translate the design intent into CAD-IR 0.1 using caddesk://schema/cad-ir/0.1, then call this tool. Arbitrary Python is never accepted.",
       inputSchema: z.object({
         project_id: z.string().min(1).optional(),
         design_spec: z.string().min(1),
@@ -54,20 +185,30 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
         material: z.string().min(1).default("PETG"),
         cad_ir: z.record(z.string(), z.unknown()),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      _meta: {
+        ...uiToolMeta(),
+        "openai/toolInvocation/invoking": "Building CAD model…",
+        "openai/toolInvocation/invoked": "CAD model ready",
+      },
     },
     async ({ project_id, design_spec, units, manufacturing_process, material, cad_ir }) => {
       try {
-        return result(
-          runtime.createDesign({
-            ...(project_id === undefined ? {} : { projectId: project_id }),
-            designSpec: design_spec,
-            units,
-            manufacturingProcess: manufacturing_process,
-            material,
-            cadIr: cad_ir,
-          }),
-        );
+        const output = runtime.createDesign({
+          ...(project_id === undefined ? {} : { projectId: project_id }),
+          designSpec: design_spec,
+          units,
+          manufacturingProcess: manufacturing_process,
+          material,
+          cadIr: cad_ir,
+        });
+        return result(publicBaseUrl ? publicSnapshot(output, publicBaseUrl) : output);
       } catch (error) {
         return failure(error);
       }
@@ -79,7 +220,7 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     {
       title: "Modify CAD design",
       description:
-        "Create a new immutable revision from an existing revision. M0 intentionally supports only set_parameter; feature-tree mutation operations are added after the golden path is stable.",
+        "Use this when the user asks to change an existing parametric design. M0 supports set_parameter and always creates a new immutable revision.",
       inputSchema: z.object({
         project_id: z.string().min(1),
         base_revision_id: z.string().min(1).optional(),
@@ -89,17 +230,27 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
           value: z.number().finite(),
         }),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      _meta: {
+        ...uiToolMeta(),
+        "openai/toolInvocation/invoking": "Rebuilding CAD revision…",
+        "openai/toolInvocation/invoked": "CAD revision ready",
+      },
     },
     async ({ project_id, base_revision_id, change }) => {
       try {
-        return result(
-          runtime.modifyDesign({
-            projectId: project_id,
-            ...(base_revision_id === undefined ? {} : { baseRevisionId: base_revision_id }),
-            change: { operation: "set_parameter", name: change.name, value: change.value },
-          }),
-        );
+        const output = runtime.modifyDesign({
+          projectId: project_id,
+          ...(base_revision_id === undefined ? {} : { baseRevisionId: base_revision_id }),
+          change: { operation: "set_parameter", name: change.name, value: change.value },
+        });
+        return result(publicBaseUrl ? publicSnapshot(output, publicBaseUrl) : output);
       } catch (error) {
         return failure(error);
       }
@@ -110,9 +261,15 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     "inspect_design",
     {
       title: "Inspect CAD design",
-      description: "Read parameters, feature tree, and geometry summary for a project revision.",
+      description: "Use this when parameters, feature tree, or geometry summary are needed for a revision.",
       inputSchema: z.object(revisionSelector),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      outputSchema: inspectSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ project_id, revision_id }) => {
       try {
@@ -127,13 +284,22 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     "render_design",
     {
       title: "Render CAD design",
-      description: "Return the GLB/TJS preview artifact URI for a project revision.",
+      description: "Use this when the user wants to view an existing CAD revision in the interactive viewer.",
       inputSchema: z.object(revisionSelector),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      ...(publicBaseUrl ? { outputSchema: snapshotSchema } : {}),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      _meta: uiToolMeta(),
     },
     async ({ project_id, revision_id }) => {
       try {
-        return result(runtime.renderDesign(project_id, revision_id));
+        if (!publicBaseUrl) return result(runtime.renderDesign(project_id, revision_id));
+        const inspected = runtime.inspectDesign(project_id, revision_id);
+        return result(publicSnapshot(inspected, publicBaseUrl));
       } catch (error) {
         return failure(error);
       }
@@ -144,9 +310,15 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     "validate_design",
     {
       title: "Validate CAD design",
-      description: "Return cached OpenCascade geometry validation for a project revision.",
+      description: "Use this when geometry validity needs to be checked for a project revision.",
       inputSchema: z.object(revisionSelector),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      outputSchema: validateSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ project_id, revision_id }) => {
       try {
@@ -161,16 +333,29 @@ export function createCadDeskServer(runtime = new CadDeskRuntime()): McpServer {
     "export_design",
     {
       title: "Export CAD design",
-      description: "Return the already-built STEP, STL, or 3MF artifact for a project revision.",
+      description: "Use this when the user wants the STEP, STL, or 3MF artifact for a revision.",
       inputSchema: z.object({
         ...revisionSelector,
         format: z.enum(["step", "stl", "3mf"]),
       }),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      ...(publicBaseUrl ? { outputSchema: exportSchema } : {}),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ project_id, revision_id, format }) => {
       try {
-        return result(runtime.exportDesign(project_id, format, revision_id));
+        if (!publicBaseUrl) return result(runtime.exportDesign(project_id, format, revision_id));
+        const artifact = runtime.artifactLocation(project_id, format, revision_id);
+        return result({
+          project_id: artifact.projectId,
+          revision_id: artifact.revisionId,
+          format,
+          artifact_url: artifactUrl(publicBaseUrl, artifact.projectId, artifact.revisionId, format),
+        });
       } catch (error) {
         return failure(error);
       }
