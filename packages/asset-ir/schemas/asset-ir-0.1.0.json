@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/asset-ir/0.1.0",
+  "title": "CAD3MF Asset IR 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "asset_id",
+    "project_id",
+    "revision_id",
+    "source_intent_revision_id",
+    "asset_type",
+    "units",
+    "geometry_artifact",
+    "regions",
+    "print_constraints",
+    "provenance",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "asset_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "source_intent_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "asset_type": {
+      "enum": ["figurine", "character", "organic_shell", "decorative_part", "sculpted_part", "other"]
+    },
+    "units": {"const": "mm"},
+    "style": {"type": ["string", "null"], "maxLength": 256},
+    "pose": {"type": ["string", "null"], "maxLength": 512},
+    "target_dimensions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/dimension"}
+    },
+    "proportions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "head_to_body_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "notes": {"type": "array", "items": {"type": "string", "maxLength": 500}, "maxItems": 32}
+      }
+    },
+    "geometry_artifact": {"$ref": "#/$defs/artifact"},
+    "regions": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/region"}
+    },
+    "print_constraints": {"$ref": "#/$defs/printConstraints"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "status": {"enum": ["generated", "needs_repair", "printable_candidate", "validated", "rejected"]}
+  },
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "unit"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "value": {"type": "number", "exclusiveMinimum": 0},
+        "unit": {"const": "mm"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "sha256", "format", "media_type"],
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "format": {"enum": ["glb", "obj", "stl", "3mf", "ply"]},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "vertex_count": {"type": ["integer", "null"], "minimum": 0},
+        "triangle_count": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "printable_region"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "role": {"enum": ["surface_region", "solid_part", "decorative_detail", "connector_exclusion", "support_exclusion"]},
+        "semantic_label": {"type": ["string", "null"], "maxLength": 128},
+        "printable_region": {"type": "boolean"},
+        "visual_color": {"$ref": "#/$defs/color"},
+        "artifact_ref": {"type": ["string", "null"], "maxLength": 128}
+      }
+    },
+    "color": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["r", "g", "b"],
+      "properties": {
+        "r": {"type": "integer", "minimum": 0, "maximum": 255},
+        "g": {"type": "integer", "minimum": 0, "maximum": 255},
+        "b": {"type": "integer", "minimum": 0, "maximum": 255},
+        "a": {"type": "integer", "minimum": 0, "maximum": 255, "default": 255}
+      }
+    },
+    "printConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_wall_thickness_mm", "minimum_feature_size_mm", "base_required"],
+      "properties": {
+        "minimum_wall_thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_feature_size_mm": {"type": "number", "exclusiveMinimum": 0},
+        "base_required": {"type": "boolean"},
+        "target_height_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "maximum_overhang_deg": {"type": ["number", "null"], "minimum": 0, "maximum": 90}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator_kind", "provider", "model", "job_id", "input_artifact_sha256"],
+      "properties": {
+        "generator_kind": {"enum": ["mesh_provider", "manual_import", "derived_repair"]},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
+        "model_version": {"type": ["string", "null"], "maxLength": 128},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "input_artifact_sha256": {"type": "array", "items": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}, "minItems": 1, "maxItems": 64}
+      }
+    }
+  }
+}

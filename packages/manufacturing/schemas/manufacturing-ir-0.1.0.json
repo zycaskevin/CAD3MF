@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/manufacturing-ir/0.1.0",
+  "title": "CAD3MF Manufacturing IR 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "project_id",
+    "revision_id",
+    "source",
+    "process",
+    "printer",
+    "filaments",
+    "part_assignments",
+    "slice_profile",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "plan_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "source": {"$ref": "#/$defs/source"},
+    "process": {"const": "fdm"},
+    "printer": {"$ref": "#/$defs/printer"},
+    "filaments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {"$ref": "#/$defs/filament"}
+    },
+    "part_assignments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "items": {"$ref": "#/$defs/partAssignment"}
+    },
+    "slice_profile": {"$ref": "#/$defs/sliceProfile"},
+    "validation_policy": {
+      "type": "array",
+      "items": {"enum": ["geometry", "watertight", "minimum_thickness", "minimum_feature", "build_volume", "stability", "assembly", "slicer_reopen"]},
+      "uniqueItems": true,
+      "maxItems": 16
+    },
+    "status": {"enum": ["draft", "planned", "needs_validation", "validated", "sliced", "rejected"]}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["cad_ir", "asset_ir", "assembly_ir"]},
+        "ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "artifact_sha256": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"}
+      }
+    },
+    "printer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_profile_id", "machine_profile_sha256", "nozzle_diameter_mm"],
+      "properties": {
+        "machine_profile_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "machine_profile_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "nozzle_diameter_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 5},
+        "build_volume_mm": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": {"type": "number", "exclusiveMinimum": 0},
+            "y": {"type": "number", "exclusiveMinimum": 0},
+            "z": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "filament": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "filament_profile_id", "filament_profile_sha256", "material"],
+      "properties": {
+        "slot": {"type": "integer", "minimum": 1, "maximum": 16},
+        "filament_profile_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "filament_profile_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "material": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9+._ -]{0,63}$"},
+        "color_hex": {"type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$"}
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rotate_x", "rotate_y", "rotate_z", "source"],
+      "properties": {
+        "rotate_x": {"type": "number"},
+        "rotate_y": {"type": "number"},
+        "rotate_z": {"type": "number"},
+        "source": {"enum": ["user", "validated_auto", "design_default"]}
+      }
+    },
+    "partAssignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["part_id", "filament_slot", "orientation"],
+      "properties": {
+        "part_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "region_id": {"type": ["string", "null"], "maxLength": 128},
+        "filament_slot": {"type": "integer", "minimum": 1, "maximum": 16},
+        "orientation": {"$ref": "#/$defs/orientation"}
+      }
+    },
+    "sliceProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process_profile_id", "process_profile_sha256", "layer_height_mm", "wall_loops", "infill_percent", "support", "brim"],
+      "properties": {
+        "process_profile_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "process_profile_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "layer_height_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 2},
+        "wall_loops": {"type": "integer", "minimum": 1, "maximum": 20},
+        "infill_percent": {"type": "number", "minimum": 0, "maximum": 100},
+        "support": {"enum": ["off", "minimal", "auto", "required"]},
+        "brim": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/design-intent/0.1.0",
+  "title": "CAD3MF Design Intent 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "intent_id",
+    "project_id",
+    "revision_id",
+    "product_kind",
+    "source_assets",
+    "known_dimensions",
+    "observed_features",
+    "hidden_geometry_assumptions",
+    "questions",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "intent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "product_kind": {
+      "enum": ["figurine", "character", "modular_product", "vehicle", "mechanical_part", "hybrid", "other"]
+    },
+    "style": {"type": ["string", "null"], "maxLength": 256},
+    "requested_functions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 256},
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "source_assets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/sourceAsset"}
+    },
+    "known_dimensions": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/dimension"}
+    },
+    "observed_features": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/observedFeature"}
+    },
+    "hidden_geometry_assumptions": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/assumption"}
+    },
+    "questions": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/question"}
+    },
+    "notes": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000},
+      "maxItems": 128
+    },
+    "status": {
+      "enum": ["draft", "needs_input", "needs_confirmation", "confirmed", "design_locked", "rejected"]
+    },
+    "created_at": {"type": ["string", "null"], "format": "date-time"},
+    "updated_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "$defs": {
+    "sourceAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "sha256", "media_type", "role"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "media_type": {"enum": ["image/jpeg", "image/png", "image/webp"]},
+        "role": {"enum": ["identity_reference", "concept", "front", "left", "right", "back", "three_quarter_front", "three_quarter_back", "sketch", "dimension_reference", "other"]}
+      }
+    },
+    "dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "unit", "source"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "value": {"type": "number", "exclusiveMinimum": 0},
+        "unit": {"const": "mm"},
+        "source": {"enum": ["user", "measured_reference", "inferred", "default"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number", "minimum": 0, "maximum": 1},
+        "y": {"type": "number", "minimum": 0, "maximum": 1},
+        "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "region": {"$ref": "#/$defs/region"},
+        "note": {"type": "string", "maxLength": 500}
+      }
+    },
+    "observedFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "value", "confidence", "evidence"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "value": {
+          "oneOf": [
+            {"type": "string", "maxLength": 1000},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array", "items": {"type": "string", "maxLength": 256}, "maxItems": 32}
+          ]
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}, "maxItems": 16},
+        "user_confirmed": {"type": "boolean", "default": false}
+      }
+    },
+    "assumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "confidence", "user_confirmed"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "user_confirmed": {"type": "boolean"}
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "prompt", "required", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "prompt": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "required": {"type": "boolean"},
+        "status": {"enum": ["open", "answered", "waived"]},
+        "answer": {"type": ["string", "null"], "maxLength": 2000}
+      }
+    }
+  }
+}
