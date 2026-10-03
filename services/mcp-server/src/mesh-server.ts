@@ -257,7 +257,7 @@ export function registerMeshM1(
     "get_mesh_asset",
     {
       title: "Get Asset-IR",
-      description: "Read a generated or imported Asset-IR revision."
+      description: "Read a generated or imported Asset-IR revision.",
       inputSchema: z.object({
         project_id: z.string().min(1).max(128),
         revision_id: z.string().min(1).max(128).optional(),
