@@ -16,7 +16,8 @@ type Validation = {
   bounding_box_mm?: { x?: number; y?: number; z?: number };
 };
 
-type Snapshot = {
+type ParametricSnapshot = {
+  view_kind?: "parametric";
   project_id: string;
   revision_id: string;
   parent_revision_id: string | null;
@@ -26,13 +27,68 @@ type Snapshot = {
   artifact_urls: { step: string; stl: string; "3mf": string };
 };
 
+type EngineeringEnvelope = {
+  id: string;
+  semantic_role: string;
+  component_role: string;
+  shape: Record<string, unknown>;
+  transform: Record<string, unknown>;
+  clearance_mm: number | null;
+};
+
+type EngineeringSnapshot = {
+  view_kind: "engineering";
+  project_id: string;
+  asset_revision_id: string;
+  asset_type: string | null;
+  target_dimensions: unknown[];
+  visual_alignment: Record<string, unknown>;
+  geometry_artifact: Record<string, unknown>;
+  viewer: { preview_url: string };
+  envelope_set: {
+    revision_id: string | null;
+    coordinate_frame: Record<string, unknown> | null;
+    envelopes: EngineeringEnvelope[];
+  } | null;
+  interference_report: Record<string, unknown> | null;
+  interference_report_stale: boolean;
+  assembly: Record<string, unknown> | null;
+  assembly_validation: Record<string, unknown> | null;
+  assembly_validation_stale: boolean;
+  evidence_note: string;
+};
+
+type ViewerSnapshot = ParametricSnapshot | EngineeringSnapshot;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function parseSnapshot(value: unknown): Snapshot | null {
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseEngineeringEnvelope(value: unknown): EngineeringEnvelope | null {
+  const envelope = asRecord(value);
+  if (!envelope || typeof envelope.id !== "string") return null;
+  const shape = asRecord(envelope.shape);
+  const transform = asRecord(envelope.transform);
+  if (!shape || !transform) return null;
+  return {
+    id: envelope.id,
+    semantic_role:
+      typeof envelope.semantic_role === "string" ? envelope.semantic_role : "other",
+    component_role:
+      typeof envelope.component_role === "string" ? envelope.component_role : "other",
+    shape,
+    transform,
+    clearance_mm: finiteNumber(envelope.clearance_mm),
+  };
+}
+
+function parseParametricSnapshot(value: unknown): ParametricSnapshot | null {
   const root = asRecord(value);
   if (!root) return null;
   const parameters = asRecord(root.parameters);
@@ -60,6 +116,7 @@ function parseSnapshot(value: unknown): Snapshot | null {
   }
 
   return {
+    view_kind: "parametric",
     project_id: root.project_id,
     revision_id: root.revision_id,
     parent_revision_id: typeof root.parent_revision_id === "string" ? root.parent_revision_id : null,
@@ -72,6 +129,63 @@ function parseSnapshot(value: unknown): Snapshot | null {
       "3mf": artifacts["3mf"],
     },
   };
+}
+
+function parseEngineeringSnapshot(value: unknown): EngineeringSnapshot | null {
+  const root = asRecord(value);
+  if (!root || root.view_kind !== "engineering") return null;
+  const viewer = asRecord(root.viewer);
+  const geometryArtifact = asRecord(root.geometry_artifact);
+  const visualAlignment = asRecord(root.visual_alignment);
+  if (
+    typeof root.project_id !== "string" ||
+    typeof root.asset_revision_id !== "string" ||
+    !viewer ||
+    typeof viewer.preview_url !== "string" ||
+    !geometryArtifact ||
+    !visualAlignment
+  ) {
+    return null;
+  }
+
+  const rawEnvelopeSet = asRecord(root.envelope_set);
+  const rawEnvelopes = rawEnvelopeSet?.envelopes;
+  const envelopeSet =
+    rawEnvelopeSet && Array.isArray(rawEnvelopes)
+      ? {
+          revision_id:
+            typeof rawEnvelopeSet.revision_id === "string"
+              ? rawEnvelopeSet.revision_id
+              : null,
+          coordinate_frame: asRecord(rawEnvelopeSet.coordinate_frame),
+          envelopes: rawEnvelopes.flatMap((item) => {
+            const parsed = parseEngineeringEnvelope(item);
+            return parsed ? [parsed] : [];
+          }),
+        }
+      : null;
+
+  return {
+    view_kind: "engineering",
+    project_id: root.project_id,
+    asset_revision_id: root.asset_revision_id,
+    asset_type: typeof root.asset_type === "string" ? root.asset_type : null,
+    target_dimensions: Array.isArray(root.target_dimensions) ? root.target_dimensions : [],
+    visual_alignment: visualAlignment,
+    geometry_artifact: geometryArtifact,
+    viewer: { preview_url: viewer.preview_url },
+    envelope_set: envelopeSet,
+    interference_report: asRecord(root.interference_report),
+    interference_report_stale: root.interference_report_stale === true,
+    assembly: asRecord(root.assembly),
+    assembly_validation: asRecord(root.assembly_validation),
+    assembly_validation_stale: root.assembly_validation_stale === true,
+    evidence_note: typeof root.evidence_note === "string" ? root.evidence_note : "",
+  };
+}
+
+function parseSnapshot(value: unknown): ViewerSnapshot | null {
+  return parseEngineeringSnapshot(value) ?? parseParametricSnapshot(value);
 }
 
 function ModelViewport({ url }: { url: string }) {
