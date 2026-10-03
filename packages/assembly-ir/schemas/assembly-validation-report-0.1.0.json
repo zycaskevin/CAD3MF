@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/assembly-validation-report/0.1.0",
+  "title": "CAD3MF Assembly Validation Report 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "report_id",
+    "source_revision_id",
+    "checks",
+    "summary",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "report_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "checks": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "status", "subject", "message"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
+          "status": {"enum": ["pass", "fail", "unknown"]},
+          "subject": {"type": "string", "minLength": 1, "maxLength": 256},
+          "message": {"type": "string", "minLength": 1, "maxLength": 2000}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail", "unknown"],
+      "properties": {
+        "pass": {"type": "integer", "minimum": 0},
+        "fail": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0}
+      }
+    },
+    "status": {"enum": ["pass", "fail", "unknown"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
