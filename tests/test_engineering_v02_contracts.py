@@ -6,14 +6,8 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-ENVELOPE_SCHEMA = (
-    ROOT
-    / "packages/engineering/schemas/engineering-envelope-set-0.1.0.json"
-)
-REPORT_SCHEMA = (
-    ROOT
-    / "packages/engineering/schemas/engineering-interference-report-0.1.0.json"
-)
+ENVELOPE_SCHEMA = ROOT / "packages/engineering/schemas/engineering-envelope-set-0.1.0.json"
+REPORT_SCHEMA = ROOT / "packages/engineering/schemas/engineering-interference-report-0.1.0.json"
 
 
 def test_engineering_v02_schemas_are_valid() -> None:
