@@ -29,9 +29,7 @@ def test_asset_ir_v02_external_reference_contract() -> None:
         "units": "mm",
         "style": None,
         "pose": None,
-        "target_dimensions": [
-            {"name": "target_length", "value": 160, "unit": "mm"}
-        ],
+        "target_dimensions": [{"name": "target_length", "value": 160, "unit": "mm"}],
         "geometry_artifact": {
             "artifact_id": "mesh-1",
             "sha256": SHA,
