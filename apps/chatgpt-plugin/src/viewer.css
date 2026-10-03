@@ -133,3 +133,35 @@ button.ghost { background: transparent; }
   .shell { background: var(--color-background-primary, rgba(24,24,27,.97)); }
   .parameter-control input, button { background: rgba(255,255,255,.045); }
 }
+
+
+.envelope-list { display: grid; gap: 8px; }
+.envelope-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(127,127,127,.06);
+}
+.envelope-row > .eyebrow:last-child {
+  grid-column: 1 / -1;
+}
+.envelope-badge {
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  background: rgba(59,130,246,.14);
+}
+.envelope-badge.keep_out { background: rgba(239,68,68,.16); }
+.envelope-badge.motion_swept { background: rgba(245,158,11,.18); }
+.envelope-badge.required_contact { background: rgba(168,85,247,.16); }
+.engineering-note, .muted-line {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: .72;
+}
