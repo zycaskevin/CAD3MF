@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
+import { registerEngineeringV02 } from "./engineering-server.js";
 import { registerMeshM1 } from "./mesh-server.js";
 import { CadDeskRuntime } from "./runtime.js";
 import type { JsonObject } from "./types.js";
@@ -376,6 +377,7 @@ export function createCadDeskServer(
   registerMeshM1(server, {
     ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
   });
+  registerEngineeringV02(server);
 
   return server;
 }
