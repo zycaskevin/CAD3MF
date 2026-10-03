@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 
 import { registerAssemblyV02 } from "./assembly-server.js";
 import { registerEngineeringV02 } from "./engineering-server.js";
+import { registerEngineeringViewV02 } from "./engineering-view-server.js";
 import { registerManufacturingProfilesV02 } from "./manufacturing-profile-server.js";
 import { registerMeshM1 } from "./mesh-server.js";
 import { CadDeskRuntime } from "./runtime.js";
@@ -382,6 +383,9 @@ export function createCadDeskServer(
   registerEngineeringV02(server);
   registerAssemblyV02(server);
   registerManufacturingProfilesV02(server);
+  registerEngineeringViewV02(server, {
+    ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+  });
 
   return server;
 }
