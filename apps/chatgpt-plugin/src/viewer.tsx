@@ -399,12 +399,12 @@ function ModelViewport({
   );
 }
 
-function formatNumber(value: number | undefined, digits = 2): string {
+function formatNumber(value: number | null | undefined, digits = 2): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
 function App() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<ViewerSnapshot | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyParameter, setBusyParameter] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -426,19 +426,31 @@ function App() {
   });
 
   useEffect(() => {
-    if (!snapshot) return;
-    setDrafts(Object.fromEntries(Object.entries(snapshot.parameters).map(([key, value]) => [key, String(value)])));
+    if (!snapshot || snapshot.view_kind === "engineering") {
+      setDrafts({});
+      return;
+    }
+    setDrafts(
+      Object.fromEntries(
+        Object.entries(snapshot.parameters).map(([key, value]) => [key, String(value)]),
+      ),
+    );
   }, [snapshot]);
 
-  const validation = snapshot?.geometry_summary;
+  const parametricSnapshot =
+    snapshot && snapshot.view_kind !== "engineering" ? snapshot : null;
+  const validation = parametricSnapshot?.geometry_summary;
   const bbox = validation?.bounding_box_mm;
   const parameterEntries = useMemo(
-    () => Object.entries(snapshot?.parameters ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-    [snapshot],
+    () =>
+      Object.entries(parametricSnapshot?.parameters ?? {}).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
+    [parametricSnapshot],
   );
 
   async function applyParameter(name: string) {
-    if (!app || !snapshot) return;
+    if (!app || !parametricSnapshot) return;
     const value = Number(drafts[name]);
     if (!Number.isFinite(value)) {
       setMessage(`${name} must be numeric`);
@@ -455,8 +467,8 @@ function App() {
       const toolResult = await app.callServerTool({
         name: "modify_design",
         arguments: {
-          project_id: snapshot.project_id,
-          base_revision_id: snapshot.revision_id,
+          project_id: parametricSnapshot.project_id,
+          base_revision_id: parametricSnapshot.revision_id,
           change: { operation: "set_parameter", name, value },
         },
       });
@@ -471,12 +483,16 @@ function App() {
   }
 
   async function exportFormat(format: "step" | "stl" | "3mf") {
-    if (!app || !snapshot) return;
+    if (!app || !parametricSnapshot) return;
     setMessage(null);
     try {
       const toolResult = await app.callServerTool({
         name: "export_design",
-        arguments: { project_id: snapshot.project_id, revision_id: snapshot.revision_id, format },
+        arguments: {
+          project_id: parametricSnapshot.project_id,
+          revision_id: parametricSnapshot.revision_id,
+          format,
+        },
       });
       const output = asRecord(toolResult.structuredContent);
       if (!output || typeof output.artifact_url !== "string") {
@@ -502,6 +518,132 @@ function App() {
   if (error) return <div className="empty-state">Viewer connection failed: {error.message}</div>;
   if (!app) return <div className="empty-state">Connecting CADDesk viewer…</div>;
   if (!snapshot) return <div className="empty-state">Waiting for a CAD revision…</div>;
+
+  if (snapshot.view_kind === "engineering") {
+    const envelopes = snapshot.envelope_set?.envelopes ?? [];
+    const visualizedCount = envelopes.filter(envelopeVisualizable).length;
+    const interferenceStatus =
+      typeof snapshot.interference_report?.status === "string"
+        ? snapshot.interference_report.status
+        : "not_run";
+    const assemblyStatus =
+      typeof snapshot.assembly_validation?.status === "string"
+        ? snapshot.assembly_validation.status
+        : "not_run";
+    const targetValue = finiteNumber(snapshot.visual_alignment.target_value_mm);
+    const alignmentNote =
+      typeof snapshot.visual_alignment.note === "string"
+        ? snapshot.visual_alignment.note
+        : "Reference mesh alignment is visual-only.";
+
+    return (
+      <main className="shell">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">CADDesk Engineering · {snapshot.project_id}</div>
+            <h1>{snapshot.asset_type ?? "Reference asset"} · {snapshot.asset_revision_id}</h1>
+          </div>
+          <div className="topbar-actions">
+            <span
+              className={
+                interferenceStatus === "pass"
+                  ? "status pass"
+                  : interferenceStatus === "fail"
+                    ? "status fail"
+                    : "status"
+              }
+            >
+              {interferenceStatus === "pass"
+                ? "✓ Interference PASS"
+                : interferenceStatus === "fail"
+                  ? "⚠ Interference FAIL"
+                  : "◇ Interference not verified"}
+            </span>
+            <button className="ghost" onClick={() => void toggleFullscreen()}>
+              {displayMode === "fullscreen" ? "Exit fullscreen" : "Fullscreen"}
+            </button>
+          </div>
+        </header>
+
+        <section className="workspace">
+          <div className="viewer-card">
+            <ModelViewport
+              url={snapshot.viewer.preview_url}
+              envelopes={envelopes}
+              visualAlignment={snapshot.visual_alignment}
+            />
+            <div className="metrics">
+              <span>{envelopes.length} engineering envelope</span>
+              <span>{visualizedCount} visualized</span>
+              <span>
+                {targetValue === null
+                  ? "Reference scale not normalized"
+                  : `${formatNumber(targetValue)} mm visual target`}
+              </span>
+            </div>
+          </div>
+
+          <aside className="panel">
+            <section>
+              <div className="section-title">Engineering envelopes</div>
+              <div className="envelope-list">
+                {envelopes.length === 0 ? (
+                  <div className="muted-line">No engineering envelopes defined.</div>
+                ) : (
+                  envelopes.map((envelope) => (
+                    <div className="envelope-row" key={envelope.id}>
+                      <div>
+                        <strong>{envelope.id}</strong>
+                        <div className="eyebrow">{envelope.component_role}</div>
+                      </div>
+                      <span className={`envelope-badge ${envelope.semantic_role}`}>
+                        {envelope.semantic_role}
+                      </span>
+                      <span className="eyebrow">
+                        {envelopeVisualizable(envelope) ? "overlay" : "not visualized"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section>
+              <div className="section-title">Validation</div>
+              <dl className="validation-grid">
+                <div>
+                  <dt>Interference</dt>
+                  <dd>{interferenceStatus}</dd>
+                </div>
+                <div>
+                  <dt>Interference report</dt>
+                  <dd>{snapshot.interference_report_stale ? "Stale" : "Current / none"}</dd>
+                </div>
+                <div>
+                  <dt>Assembly</dt>
+                  <dd>{assemblyStatus}</dd>
+                </div>
+                <div>
+                  <dt>Assembly report</dt>
+                  <dd>{snapshot.assembly_validation_stale ? "Stale" : "Current / none"}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section>
+              <div className="section-title">Visual alignment</div>
+              <div className="engineering-note">{alignmentNote}</div>
+            </section>
+
+            {snapshot.evidence_note ? (
+              <div className="message">{snapshot.evidence_note}</div>
+            ) : null}
+            {message ? <div className="message">{message}</div> : null}
+          </aside>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="shell">
