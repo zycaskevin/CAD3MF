@@ -6,6 +6,7 @@ import { extname } from "node:path";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 
+import { MeshRuntime } from "./mesh-runtime.js";
 import { CadDeskRuntime, type ArtifactKind } from "./runtime.js";
 import { createCadDeskServer } from "./server.js";
 import { VisualRuntime } from "./visual-runtime.js";
@@ -20,6 +21,7 @@ const publicBaseUrl = process.env.CAD3MF_PUBLIC_BASE_URL ?? `http://${host}:${po
 const publicUrl = new URL(publicBaseUrl);
 const runtime = new CadDeskRuntime();
 const visualRuntime = new VisualRuntime();
+const meshRuntime = new MeshRuntime();
 const mcpHandler = createMcpHandler(() => createCadDeskServer(runtime, { publicBaseUrl }));
 const nodeMcpHandler = toNodeHandler(mcpHandler, {
   onerror: (error) => console.error("MCP HTTP adapter error", error),
@@ -86,7 +88,10 @@ const httpServer = createServer((req, res) => {
   const isCadArtifactRequest = req.method === "GET" && requestUrl.pathname.startsWith("/artifacts/");
   const isVisualArtifactRequest =
     req.method === "GET" && requestUrl.pathname.startsWith("/visual-artifacts/");
-  const isPublicArtifactRequest = isCadArtifactRequest || isVisualArtifactRequest;
+  const isMeshArtifactRequest =
+    req.method === "GET" && requestUrl.pathname.startsWith("/mesh-artifacts/");
+  const isPublicArtifactRequest =
+    isCadArtifactRequest || isVisualArtifactRequest || isMeshArtifactRequest;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
@@ -146,6 +151,41 @@ const httpServer = createServer((req, res) => {
       const body = readFileSync(artifact.path);
       const digest = createHash("sha256").update(body).digest("hex");
       if (digest !== artifact.sha256) throw new Error("visual artifact checksum mismatch");
+      res.writeHead(200, {
+        "access-control-allow-origin": "*",
+        "cache-control": "private, max-age=31536000, immutable",
+        "content-length": String(body.byteLength),
+        "content-type": artifact.mediaType,
+        "x-content-type-options": "nosniff",
+      });
+      res.end(body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
+  if (isMeshArtifactRequest) {
+    const parts = requestUrl.pathname.split("/").filter(Boolean);
+    if (parts.length !== 3) {
+      res.writeHead(404).end();
+      return;
+    }
+    const [, rawProjectId, rawArtifactId] = parts;
+    if (!rawProjectId || !rawArtifactId) {
+      res.writeHead(404).end();
+      return;
+    }
+
+    try {
+      const projectId = decodeURIComponent(rawProjectId);
+      const artifactId = decodeURIComponent(rawArtifactId);
+      const artifact = meshRuntime.artifactLocation(projectId, artifactId);
+      const body = readFileSync(artifact.path);
+      const digest = createHash("sha256").update(body).digest("hex");
+      if (digest !== artifact.sha256) throw new Error("mesh artifact checksum mismatch");
       res.writeHead(200, {
         "access-control-allow-origin": "*",
         "cache-control": "private, max-age=31536000, immutable",

@@ -16,7 +16,8 @@ type Validation = {
   bounding_box_mm?: { x?: number; y?: number; z?: number };
 };
 
-type Snapshot = {
+type ParametricSnapshot = {
+  view_kind?: "parametric";
   project_id: string;
   revision_id: string;
   parent_revision_id: string | null;
@@ -26,13 +27,68 @@ type Snapshot = {
   artifact_urls: { step: string; stl: string; "3mf": string };
 };
 
+type EngineeringEnvelope = {
+  id: string;
+  semantic_role: string;
+  component_role: string;
+  shape: Record<string, unknown>;
+  transform: Record<string, unknown>;
+  clearance_mm: number | null;
+};
+
+type EngineeringSnapshot = {
+  view_kind: "engineering";
+  project_id: string;
+  asset_revision_id: string;
+  asset_type: string | null;
+  target_dimensions: unknown[];
+  visual_alignment: Record<string, unknown>;
+  geometry_artifact: Record<string, unknown>;
+  viewer: { preview_url: string };
+  envelope_set: {
+    revision_id: string | null;
+    coordinate_frame: Record<string, unknown> | null;
+    envelopes: EngineeringEnvelope[];
+  } | null;
+  interference_report: Record<string, unknown> | null;
+  interference_report_stale: boolean;
+  assembly: Record<string, unknown> | null;
+  assembly_validation: Record<string, unknown> | null;
+  assembly_validation_stale: boolean;
+  evidence_note: string;
+};
+
+type ViewerSnapshot = ParametricSnapshot | EngineeringSnapshot;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function parseSnapshot(value: unknown): Snapshot | null {
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseEngineeringEnvelope(value: unknown): EngineeringEnvelope | null {
+  const envelope = asRecord(value);
+  if (!envelope || typeof envelope.id !== "string") return null;
+  const shape = asRecord(envelope.shape);
+  const transform = asRecord(envelope.transform);
+  if (!shape || !transform) return null;
+  return {
+    id: envelope.id,
+    semantic_role:
+      typeof envelope.semantic_role === "string" ? envelope.semantic_role : "other",
+    component_role:
+      typeof envelope.component_role === "string" ? envelope.component_role : "other",
+    shape,
+    transform,
+    clearance_mm: finiteNumber(envelope.clearance_mm),
+  };
+}
+
+function parseParametricSnapshot(value: unknown): ParametricSnapshot | null {
   const root = asRecord(value);
   if (!root) return null;
   const parameters = asRecord(root.parameters);
@@ -60,6 +116,7 @@ function parseSnapshot(value: unknown): Snapshot | null {
   }
 
   return {
+    view_kind: "parametric",
     project_id: root.project_id,
     revision_id: root.revision_id,
     parent_revision_id: typeof root.parent_revision_id === "string" ? root.parent_revision_id : null,
@@ -74,7 +131,150 @@ function parseSnapshot(value: unknown): Snapshot | null {
   };
 }
 
-function ModelViewport({ url }: { url: string }) {
+function parseEngineeringSnapshot(value: unknown): EngineeringSnapshot | null {
+  const root = asRecord(value);
+  if (!root || root.view_kind !== "engineering") return null;
+  const viewer = asRecord(root.viewer);
+  const geometryArtifact = asRecord(root.geometry_artifact);
+  const visualAlignment = asRecord(root.visual_alignment);
+  if (
+    typeof root.project_id !== "string" ||
+    typeof root.asset_revision_id !== "string" ||
+    !viewer ||
+    typeof viewer.preview_url !== "string" ||
+    !geometryArtifact ||
+    !visualAlignment
+  ) {
+    return null;
+  }
+
+  const rawEnvelopeSet = asRecord(root.envelope_set);
+  const rawEnvelopes = rawEnvelopeSet?.envelopes;
+  const envelopeSet =
+    rawEnvelopeSet && Array.isArray(rawEnvelopes)
+      ? {
+          revision_id:
+            typeof rawEnvelopeSet.revision_id === "string"
+              ? rawEnvelopeSet.revision_id
+              : null,
+          coordinate_frame: asRecord(rawEnvelopeSet.coordinate_frame),
+          envelopes: rawEnvelopes.flatMap((item) => {
+            const parsed = parseEngineeringEnvelope(item);
+            return parsed ? [parsed] : [];
+          }),
+        }
+      : null;
+
+  return {
+    view_kind: "engineering",
+    project_id: root.project_id,
+    asset_revision_id: root.asset_revision_id,
+    asset_type: typeof root.asset_type === "string" ? root.asset_type : null,
+    target_dimensions: Array.isArray(root.target_dimensions) ? root.target_dimensions : [],
+    visual_alignment: visualAlignment,
+    geometry_artifact: geometryArtifact,
+    viewer: { preview_url: viewer.preview_url },
+    envelope_set: envelopeSet,
+    interference_report: asRecord(root.interference_report),
+    interference_report_stale: root.interference_report_stale === true,
+    assembly: asRecord(root.assembly),
+    assembly_validation: asRecord(root.assembly_validation),
+    assembly_validation_stale: root.assembly_validation_stale === true,
+    evidence_note: typeof root.evidence_note === "string" ? root.evidence_note : "",
+  };
+}
+
+function parseSnapshot(value: unknown): ViewerSnapshot | null {
+  return parseEngineeringSnapshot(value) ?? parseParametricSnapshot(value);
+}
+
+function envelopeVisualizable(envelope: EngineeringEnvelope): boolean {
+  const rotateX = finiteNumber(envelope.transform.rotate_x) ?? 0;
+  const rotateY = finiteNumber(envelope.transform.rotate_y) ?? 0;
+  const rotateZ = finiteNumber(envelope.transform.rotate_z) ?? 0;
+  const kind = envelope.shape.kind;
+  if (kind === "box") return rotateX === 0 && rotateY === 0 && rotateZ === 0;
+  if (kind === "cylinder") return rotateX === 0 && rotateY === 0;
+  return false;
+}
+
+function engineeringPosition(transform: Record<string, unknown>): THREE.Vector3 {
+  const x = finiteNumber(transform.x) ?? 0;
+  const y = finiteNumber(transform.y) ?? 0;
+  const z = finiteNumber(transform.z) ?? 0;
+  return new THREE.Vector3(x, z, -y);
+}
+
+function envelopeColor(role: string): number {
+  if (role === "keep_out") return 0xef4444;
+  if (role === "motion_swept") return 0xf59e0b;
+  if (role === "required_contact") return 0xa855f7;
+  return 0x3b82f6;
+}
+
+function createEnvelopeObject(envelope: EngineeringEnvelope): THREE.Group | null {
+  if (!envelopeVisualizable(envelope)) return null;
+  const clearance = Math.max(envelope.clearance_mm ?? 0, 0);
+  const group = new THREE.Group();
+  let geometry: THREE.BufferGeometry | null = null;
+
+  if (envelope.shape.kind === "box") {
+    const x = finiteNumber(envelope.shape.x);
+    const y = finiteNumber(envelope.shape.y);
+    const z = finiteNumber(envelope.shape.z);
+    if (x === null || y === null || z === null || x <= 0 || y <= 0 || z <= 0) return null;
+    geometry = new THREE.BoxGeometry(x + clearance * 2, z + clearance * 2, y + clearance * 2);
+  } else if (envelope.shape.kind === "cylinder") {
+    const diameter = finiteNumber(envelope.shape.diameter);
+    const height = finiteNumber(envelope.shape.height);
+    if (diameter === null || height === null || diameter <= 0 || height <= 0) return null;
+    geometry = new THREE.CylinderGeometry(
+      diameter / 2 + clearance,
+      diameter / 2 + clearance,
+      height + clearance * 2,
+      32,
+    );
+  }
+
+  if (!geometry) return null;
+  const color = envelopeColor(envelope.semantic_role);
+  const surface = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.17,
+      depthWrite: false,
+    }),
+  );
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }),
+  );
+  group.add(surface, edges);
+  group.position.copy(engineeringPosition(envelope.transform));
+  group.userData = { envelopeId: envelope.id };
+  return group;
+}
+
+function disposeObject(root: THREE.Object3D) {
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.LineSegments)) return;
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => material.dispose());
+  });
+}
+
+function ModelViewport({
+  url,
+  envelopes = [],
+  visualAlignment = null,
+}: {
+  url: string;
+  envelopes?: EngineeringEnvelope[];
+  visualAlignment?: Record<string, unknown> | null;
+}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -104,9 +304,16 @@ function ModelViewport({ url }: { url: string }) {
     fill.position.set(-80, 40, -60);
     scene.add(fill);
 
-    const grid = new THREE.GridHelper(160, 16);
+    const grid = new THREE.GridHelper(200, 20);
     grid.position.y = -0.01;
     scene.add(grid);
+
+    const overlayGroup = new THREE.Group();
+    for (const envelope of envelopes) {
+      const overlay = createEnvelopeObject(envelope);
+      if (overlay) overlayGroup.add(overlay);
+    }
+    scene.add(overlayGroup);
 
     let model: THREE.Object3D | null = null;
     const loader = new GLTFLoader();
@@ -114,15 +321,40 @@ function ModelViewport({ url }: { url: string }) {
       url,
       (gltf) => {
         model = gltf.scene;
+
+        if (
+          visualAlignment?.mode === "normalize_longest_extent_center_ground" &&
+          typeof visualAlignment.target_value_mm === "number" &&
+          Number.isFinite(visualAlignment.target_value_mm) &&
+          visualAlignment.target_value_mm > 0
+        ) {
+          const rawBox = new THREE.Box3().setFromObject(model);
+          const rawSize = rawBox.getSize(new THREE.Vector3());
+          const longest = Math.max(rawSize.x, rawSize.y, rawSize.z);
+          if (longest > 0) {
+            model.scale.multiplyScalar(visualAlignment.target_value_mm / longest);
+            model.updateMatrixWorld(true);
+            const scaledBox = new THREE.Box3().setFromObject(model);
+            const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+            model.position.x -= scaledCenter.x;
+            model.position.y -= scaledBox.min.y;
+            model.position.z -= scaledCenter.z;
+            model.updateMatrixWorld(true);
+          }
+        }
+
         scene.add(model);
         const box = new THREE.Box3().setFromObject(model);
+        if (overlayGroup.children.length > 0) box.expandByObject(overlayGroup);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const radius = Math.max(size.length() * 0.5, 1);
         controls.target.copy(center);
         camera.near = Math.max(radius / 200, 0.01);
         camera.far = Math.max(radius * 100, 1000);
-        camera.position.copy(center).add(new THREE.Vector3(radius * 1.5, radius * 1.2, radius * 1.5));
+        camera.position
+          .copy(center)
+          .add(new THREE.Vector3(radius * 1.5, radius * 1.2, radius * 1.5));
         camera.updateProjectionMatrix();
         controls.update();
       },
@@ -153,18 +385,12 @@ function ModelViewport({ url }: { url: string }) {
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
-      if (model) {
-        model.traverse((child) => {
-          if (!(child instanceof THREE.Mesh)) return;
-          child.geometry.dispose();
-          const materials = Array.isArray(child.material) ? child.material : [child.material];
-          materials.forEach((material) => material.dispose());
-        });
-      }
+      if (model) disposeObject(model);
+      disposeObject(overlayGroup);
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [url]);
+  }, [url, envelopes, visualAlignment]);
 
   return (
     <div className="viewport" ref={mountRef}>
@@ -173,12 +399,12 @@ function ModelViewport({ url }: { url: string }) {
   );
 }
 
-function formatNumber(value: number | undefined, digits = 2): string {
+function formatNumber(value: number | null | undefined, digits = 2): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
 function App() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<ViewerSnapshot | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyParameter, setBusyParameter] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -200,19 +426,31 @@ function App() {
   });
 
   useEffect(() => {
-    if (!snapshot) return;
-    setDrafts(Object.fromEntries(Object.entries(snapshot.parameters).map(([key, value]) => [key, String(value)])));
+    if (!snapshot || snapshot.view_kind === "engineering") {
+      setDrafts({});
+      return;
+    }
+    setDrafts(
+      Object.fromEntries(
+        Object.entries(snapshot.parameters).map(([key, value]) => [key, String(value)]),
+      ),
+    );
   }, [snapshot]);
 
-  const validation = snapshot?.geometry_summary;
+  const parametricSnapshot =
+    snapshot && snapshot.view_kind !== "engineering" ? snapshot : null;
+  const validation = parametricSnapshot?.geometry_summary;
   const bbox = validation?.bounding_box_mm;
   const parameterEntries = useMemo(
-    () => Object.entries(snapshot?.parameters ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-    [snapshot],
+    () =>
+      Object.entries(parametricSnapshot?.parameters ?? {}).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
+    [parametricSnapshot],
   );
 
   async function applyParameter(name: string) {
-    if (!app || !snapshot) return;
+    if (!app || !parametricSnapshot) return;
     const value = Number(drafts[name]);
     if (!Number.isFinite(value)) {
       setMessage(`${name} must be numeric`);
@@ -229,8 +467,8 @@ function App() {
       const toolResult = await app.callServerTool({
         name: "modify_design",
         arguments: {
-          project_id: snapshot.project_id,
-          base_revision_id: snapshot.revision_id,
+          project_id: parametricSnapshot.project_id,
+          base_revision_id: parametricSnapshot.revision_id,
           change: { operation: "set_parameter", name, value },
         },
       });
@@ -245,12 +483,16 @@ function App() {
   }
 
   async function exportFormat(format: "step" | "stl" | "3mf") {
-    if (!app || !snapshot) return;
+    if (!app || !parametricSnapshot) return;
     setMessage(null);
     try {
       const toolResult = await app.callServerTool({
         name: "export_design",
-        arguments: { project_id: snapshot.project_id, revision_id: snapshot.revision_id, format },
+        arguments: {
+          project_id: parametricSnapshot.project_id,
+          revision_id: parametricSnapshot.revision_id,
+          format,
+        },
       });
       const output = asRecord(toolResult.structuredContent);
       if (!output || typeof output.artifact_url !== "string") {
@@ -276,6 +518,132 @@ function App() {
   if (error) return <div className="empty-state">Viewer connection failed: {error.message}</div>;
   if (!app) return <div className="empty-state">Connecting CADDesk viewer…</div>;
   if (!snapshot) return <div className="empty-state">Waiting for a CAD revision…</div>;
+
+  if (snapshot.view_kind === "engineering") {
+    const envelopes = snapshot.envelope_set?.envelopes ?? [];
+    const visualizedCount = envelopes.filter(envelopeVisualizable).length;
+    const interferenceStatus =
+      typeof snapshot.interference_report?.status === "string"
+        ? snapshot.interference_report.status
+        : "not_run";
+    const assemblyStatus =
+      typeof snapshot.assembly_validation?.status === "string"
+        ? snapshot.assembly_validation.status
+        : "not_run";
+    const targetValue = finiteNumber(snapshot.visual_alignment.target_value_mm);
+    const alignmentNote =
+      typeof snapshot.visual_alignment.note === "string"
+        ? snapshot.visual_alignment.note
+        : "Reference mesh alignment is visual-only.";
+
+    return (
+      <main className="shell">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">CADDesk Engineering · {snapshot.project_id}</div>
+            <h1>{snapshot.asset_type ?? "Reference asset"} · {snapshot.asset_revision_id}</h1>
+          </div>
+          <div className="topbar-actions">
+            <span
+              className={
+                interferenceStatus === "pass"
+                  ? "status pass"
+                  : interferenceStatus === "fail"
+                    ? "status fail"
+                    : "status"
+              }
+            >
+              {interferenceStatus === "pass"
+                ? "✓ Interference PASS"
+                : interferenceStatus === "fail"
+                  ? "⚠ Interference FAIL"
+                  : "◇ Interference not verified"}
+            </span>
+            <button className="ghost" onClick={() => void toggleFullscreen()}>
+              {displayMode === "fullscreen" ? "Exit fullscreen" : "Fullscreen"}
+            </button>
+          </div>
+        </header>
+
+        <section className="workspace">
+          <div className="viewer-card">
+            <ModelViewport
+              url={snapshot.viewer.preview_url}
+              envelopes={envelopes}
+              visualAlignment={snapshot.visual_alignment}
+            />
+            <div className="metrics">
+              <span>{envelopes.length} engineering envelope</span>
+              <span>{visualizedCount} visualized</span>
+              <span>
+                {targetValue === null
+                  ? "Reference scale not normalized"
+                  : `${formatNumber(targetValue)} mm visual target`}
+              </span>
+            </div>
+          </div>
+
+          <aside className="panel">
+            <section>
+              <div className="section-title">Engineering envelopes</div>
+              <div className="envelope-list">
+                {envelopes.length === 0 ? (
+                  <div className="muted-line">No engineering envelopes defined.</div>
+                ) : (
+                  envelopes.map((envelope) => (
+                    <div className="envelope-row" key={envelope.id}>
+                      <div>
+                        <strong>{envelope.id}</strong>
+                        <div className="eyebrow">{envelope.component_role}</div>
+                      </div>
+                      <span className={`envelope-badge ${envelope.semantic_role}`}>
+                        {envelope.semantic_role}
+                      </span>
+                      <span className="eyebrow">
+                        {envelopeVisualizable(envelope) ? "overlay" : "not visualized"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section>
+              <div className="section-title">Validation</div>
+              <dl className="validation-grid">
+                <div>
+                  <dt>Interference</dt>
+                  <dd>{interferenceStatus}</dd>
+                </div>
+                <div>
+                  <dt>Interference report</dt>
+                  <dd>{snapshot.interference_report_stale ? "Stale" : "Current / none"}</dd>
+                </div>
+                <div>
+                  <dt>Assembly</dt>
+                  <dd>{assemblyStatus}</dd>
+                </div>
+                <div>
+                  <dt>Assembly report</dt>
+                  <dd>{snapshot.assembly_validation_stale ? "Stale" : "Current / none"}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section>
+              <div className="section-title">Visual alignment</div>
+              <div className="engineering-note">{alignmentNote}</div>
+            </section>
+
+            {snapshot.evidence_note ? (
+              <div className="message">{snapshot.evidence_note}</div>
+            ) : null}
+            {message ? <div className="message">{message}</div> : null}
+          </aside>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="shell">

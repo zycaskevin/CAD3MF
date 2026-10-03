@@ -3,6 +3,7 @@ export type M1JobKind =
   | "concept_generation"
   | "turnaround_generation"
   | "geometry_generation"
+  | "geometry_import"
   | "cad_build"
   | "mesh_repair"
   | "assembly"

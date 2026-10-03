@@ -114,17 +114,30 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
         "analyze_visual_input",
         "confirm_design",
         "create_design",
+        "define_assembly",
+        "define_engineering_envelopes",
         "export_design",
         "generate_concept",
         "generate_mesh",
         "generate_turnaround",
+        "get_assembly",
+        "get_assembly_validation",
+        "get_engineering_envelopes",
+        "get_engineering_report",
+        "get_manufacturing_profile",
         "get_mesh_asset",
         "get_mesh_job",
         "get_visual_job",
+        "import_reference_asset",
         "inspect_design",
+        "list_manufacturing_profiles",
         "modify_design",
         "render_design",
+        "render_engineering_view",
+        "resolve_fit_policy",
+        "validate_assembly",
         "validate_design",
+        "validate_engineering_envelopes",
       ],
     );
 
@@ -142,6 +155,20 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
     const meshProperties = asObject(meshInput.properties, "generate_mesh input has no properties");
     assert.equal("asset_kind" in meshProperties, true);
     assert.equal("output_format" in meshProperties, true);
+
+    const importReferenceTool = tools.find((tool) => tool.name === "import_reference_asset");
+    assert(importReferenceTool);
+    const importInput = asObject(
+      importReferenceTool.inputSchema,
+      "import_reference_asset has no input schema",
+    );
+    const importProperties = asObject(
+      importInput.properties,
+      "import_reference_asset input has no properties",
+    );
+    assert.equal("asset_kind" in importProperties, true);
+    assert.equal("source_file" in importProperties, true);
+    assert.equal("target_dimensions" in importProperties, true);
 
     const { resources } = await client.listResources();
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/cad-ir/0.1"), true);
@@ -162,6 +189,36 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
       true,
     );
     assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/asset-ir/0.1.0"), true);
+    assert.equal(resources.some((resource) => resource.uri === "caddesk://schema/asset-ir/0.2.0"), true);
+    assert.equal(
+      resources.some(
+        (resource) => resource.uri === "caddesk://schema/engineering-envelope-set/0.1.0",
+      ),
+      true,
+    );
+    assert.equal(
+      resources.some(
+        (resource) =>
+          resource.uri === "caddesk://schema/engineering-interference-report/0.1.0",
+      ),
+      true,
+    );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/assembly-ir/0.1.0"),
+      true,
+    );
+    assert.equal(
+      resources.some(
+        (resource) => resource.uri === "caddesk://schema/assembly-validation-report/0.1.0",
+      ),
+      true,
+    );
+    assert.equal(
+      resources.some(
+        (resource) => resource.uri === "caddesk://schema/manufacturing-profile/0.1.0",
+      ),
+      true,
+    );
 
     const schemaResult = await client.readResource({ uri: "caddesk://schema/cad-ir/0.1" });
     const schemaContent = schemaResult.contents[0];

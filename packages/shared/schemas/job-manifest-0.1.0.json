@@ -27,7 +27,7 @@
     "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
     "idempotency_key": {"type": ["string", "null"], "maxLength": 256},
     "job_kind": {
-      "enum": ["visual_analysis", "concept_generation", "turnaround_generation", "geometry_generation", "cad_build", "mesh_repair", "assembly", "validation", "manufacturing_plan", "slicing", "bundle"]
+      "enum": ["visual_analysis", "concept_generation", "turnaround_generation", "geometry_generation", "geometry_import", "cad_build", "mesh_repair", "assembly", "validation", "manufacturing_plan", "slicing", "bundle"]
     },
     "status": {"enum": ["queued", "running", "blocked", "succeeded", "failed", "canceled"]},
     "stage": {

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/engineering-interference-report/0.1.0",
+  "title": "CAD3MF Engineering Interference Report 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "report_id",
+    "source_revision_id",
+    "method",
+    "checks",
+    "summary",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "report_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source_revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "exact_geometry"],
+      "properties": {
+        "kind": {"const": "axis_aligned_bounding_box"},
+        "exact_geometry": {"const": false},
+        "notes": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 130816,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envelope_a",
+          "envelope_b",
+          "policy",
+          "status",
+          "approximate",
+          "overlap_mm",
+          "overlap_volume_mm3"
+        ],
+        "properties": {
+          "envelope_a": {"type": "string", "minLength": 1, "maxLength": 128},
+          "envelope_b": {"type": "string", "minLength": 1, "maxLength": 128},
+          "policy": {
+            "enum": [
+              "occupied_vs_occupied",
+              "occupied_vs_keep_out",
+              "motion_vs_occupied",
+              "motion_vs_keep_out",
+              "not_checked"
+            ]
+          },
+          "status": {"enum": ["pass", "fail", "unknown"]},
+          "approximate": {"type": "boolean"},
+          "overlap_mm": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y", "z"],
+            "properties": {
+              "x": {"type": ["number", "null"], "minimum": 0},
+              "y": {"type": ["number", "null"], "minimum": 0},
+              "z": {"type": ["number", "null"], "minimum": 0}
+            }
+          },
+          "overlap_volume_mm3": {"type": ["number", "null"], "minimum": 0},
+          "reason": {"type": ["string", "null"], "maxLength": 1000}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail", "unknown"],
+      "properties": {
+        "pass": {"type": "integer", "minimum": 0},
+        "fail": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0}
+      }
+    },
+    "status": {"enum": ["pass", "fail", "unknown"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

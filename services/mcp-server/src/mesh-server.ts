@@ -17,6 +17,13 @@ const meshOutputSchema = z.object({
   provider: jsonObjectSchema,
 });
 
+const referenceImportOutputSchema = z.object({
+  job: jsonObjectSchema,
+  mesh_artifact: jsonObjectSchema,
+  asset_ir: jsonObjectSchema,
+  source: jsonObjectSchema,
+});
+
 function schemaText(relativePath: string): string {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolve(process.env.CAD3MF_REPO_ROOT ?? resolve(moduleDir, "../../.."));
@@ -66,6 +73,12 @@ export function registerMeshM1(
       "caddesk://schema/asset-ir/0.1.0",
       "packages/asset-ir/schemas/asset-ir-0.1.0.json",
       "CAD3MF Asset-IR 0.1.0",
+    ],
+    [
+      "asset-ir-schema-v0.2",
+      "caddesk://schema/asset-ir/0.2.0",
+      "packages/asset-ir/schemas/asset-ir-0.2.0.json",
+      "CAD3MF Asset-IR 0.2.0",
     ],
   ] as const) {
     server.registerResource(
@@ -150,10 +163,101 @@ export function registerMeshM1(
   );
 
   server.registerTool(
+    "import_reference_asset",
+    {
+      title: "Import external 3D reference asset",
+      description:
+        "Use this when an existing GLB or OBJ from Meshy, another 3D provider, an artist, or a user file should enter CAD3MF as engineering reference geometry. Import is digest-bound and preserves provenance. Import alone does not establish scale correctness, topology validity, fit, or printability.",
+      inputSchema: z.object({
+        project_id: z.string().min(1).max(128),
+        asset_kind: z.enum([
+          "figurine",
+          "character",
+          "vehicle_shell",
+          "hard_surface_shell",
+          "product_shell",
+          "decorative_part",
+          "other",
+        ]),
+        source_file: z.object({
+          download_url: z.string().url(),
+          file_id: z.string().min(1).max(512),
+          format: z.enum(["glb", "obj"]),
+          mime_type: z.string().min(1).max(128).nullable().optional(),
+          file_name: z.string().min(1).max(512).nullable().optional(),
+        }),
+        source_provider: z.string().min(1).max(128).optional(),
+        source_model: z.string().min(1).max(256).optional(),
+        source_model_version: z.string().min(1).max(128).nullable().optional(),
+        target_dimensions: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(128),
+              value: z.number().positive().finite(),
+              unit: z.literal("mm"),
+            }),
+          )
+          .max(32)
+          .optional(),
+      }),
+      outputSchema: referenceImportOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      _meta: {
+        "openai/toolInvocation/invoking": "Importing 3D reference…",
+        "openai/toolInvocation/invoked": "3D reference imported",
+      },
+    },
+    async ({
+      project_id,
+      asset_kind,
+      source_file,
+      source_provider,
+      source_model,
+      source_model_version,
+      target_dimensions,
+    }) => {
+      try {
+        return result(
+          await runtime.importReferenceAsset({
+            projectId: project_id,
+            assetKind: asset_kind,
+            sourceFile: {
+              downloadUrl: source_file.download_url,
+              fileId: source_file.file_id,
+              format: source_file.format,
+              ...(source_file.mime_type === undefined
+                ? {}
+                : { mimeType: source_file.mime_type }),
+              ...(source_file.file_name === undefined
+                ? {}
+                : { fileName: source_file.file_name }),
+            },
+            ...(source_provider === undefined ? {} : { sourceProvider: source_provider }),
+            ...(source_model === undefined ? {} : { sourceModel: source_model }),
+            ...(source_model_version === undefined
+              ? {}
+              : { sourceModelVersion: source_model_version }),
+            ...(target_dimensions === undefined
+              ? {}
+              : { targetDimensions: target_dimensions }),
+          }),
+        );
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "get_mesh_asset",
     {
-      title: "Get generated Asset-IR",
-      description: "Read a generated Asset-IR revision for an M1-003 mesh asset.",
+      title: "Get Asset-IR",
+      description: "Read a generated or imported Asset-IR revision.",
       inputSchema: z.object({
         project_id: z.string().min(1).max(128),
         revision_id: z.string().min(1).max(128).optional(),

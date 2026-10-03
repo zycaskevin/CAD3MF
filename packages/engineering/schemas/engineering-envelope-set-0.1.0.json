@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/engineering-envelope-set/0.1.0",
+  "title": "CAD3MF Engineering Envelope Set 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "revision_id",
+    "units",
+    "coordinate_frame",
+    "envelopes",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "revision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "parent_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "source_asset_revision_id": {"type": ["string", "null"], "maxLength": 128},
+    "units": {"const": "mm"},
+    "coordinate_frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "handedness", "up_axis", "origin_policy"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "handedness": {"enum": ["right"]},
+        "up_axis": {"enum": ["z"]},
+        "origin_policy": {"enum": ["product_origin", "chassis_origin", "custom"]}
+      }
+    },
+    "envelopes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/envelope"}
+    },
+    "notes": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"type": "string", "maxLength": 1000}
+    },
+    "status": {"enum": ["draft", "needs_validation", "validated", "rejected"]}
+  },
+  "$defs": {
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z", "rotate_x", "rotate_y", "rotate_z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"},
+        "rotate_x": {"type": "number"},
+        "rotate_y": {"type": "number"},
+        "rotate_z": {"type": "number"}
+      }
+    },
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "x", "y", "z"],
+      "properties": {
+        "kind": {"const": "box"},
+        "x": {"type": "number", "exclusiveMinimum": 0},
+        "y": {"type": "number", "exclusiveMinimum": 0},
+        "z": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "cylinder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "diameter", "height", "axis"],
+      "properties": {
+        "kind": {"const": "cylinder"},
+        "diameter": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0},
+        "axis": {"enum": ["z"]}
+      }
+    },
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "semantic_role", "component_role", "shape", "transform"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"},
+        "semantic_role": {
+          "enum": ["occupied", "keep_out", "motion_swept", "required_contact"]
+        },
+        "component_role": {
+          "enum": [
+            "battery",
+            "pcb",
+            "motor",
+            "camera",
+            "tof",
+            "speaker",
+            "wiring",
+            "chassis",
+            "shell",
+            "turret",
+            "service_volume",
+            "other"
+          ]
+        },
+        "shape": {
+          "oneOf": [
+            {"$ref": "#/$defs/box"},
+            {"$ref": "#/$defs/cylinder"}
+          ]
+        },
+        "transform": {"$ref": "#/$defs/transform"},
+        "clearance_mm": {"type": "number", "minimum": 0, "default": 0},
+        "required": {"type": "boolean", "default": true},
+        "notes": {"type": ["string", "null"], "maxLength": 1000}
+      }
+    }
+  }
+}

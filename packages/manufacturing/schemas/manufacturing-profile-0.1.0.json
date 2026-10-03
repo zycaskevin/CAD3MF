@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad3mf.dev/schemas/manufacturing-profile/0.1.0",
+  "title": "CAD3MF Manufacturing Profile 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "profile_version",
+    "process",
+    "material",
+    "nozzle_diameter_mm",
+    "machine_scope",
+    "geometry_policy",
+    "fit_policy",
+    "calibration",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "profile_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "profile_version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "process": {"const": "fdm"},
+    "material": {"type": "string", "minLength": 1, "maxLength": 64},
+    "nozzle_diameter_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 5},
+    "machine_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "machine_specific"],
+      "properties": {
+        "class": {"type": "string", "minLength": 1, "maxLength": 128},
+        "machine_specific": {"type": "boolean"},
+        "machine_profile_id": {"type": ["string", "null"], "maxLength": 256}
+      }
+    },
+    "geometry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_wall_thickness_mm", "minimum_feature_size_mm"],
+      "properties": {
+        "minimum_wall_thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_feature_size_mm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "fit_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_clearance_mm",
+        "loose_clearance_mm",
+        "snap_fit_allowance_mm"
+      ],
+      "properties": {
+        "default_clearance_mm": {"type": "number", "minimum": 0},
+        "loose_clearance_mm": {"type": "number", "minimum": 0},
+        "snap_fit_allowance_mm": {"type": "number", "minimum": 0}
+      }
+    },
+    "pilot_hole_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requires_calibration", "notes"],
+      "properties": {
+        "requires_calibration": {"type": "boolean"},
+        "notes": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "evidence_status", "notes"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "evidence_status": {"enum": ["unverified", "bench_verified", "production_verified"]},
+        "notes": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "status": {"enum": ["starter_policy", "calibrated", "deprecated"]}
+  }
+}

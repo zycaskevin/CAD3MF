@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1.0",
+  "profile_id": "bambu-class-petg-0.4-starter",
+  "profile_version": "0.1.0",
+  "process": "fdm",
+  "material": "PETG",
+  "nozzle_diameter_mm": 0.4,
+  "machine_scope": {
+    "class": "Bambu-class enclosed FDM",
+    "machine_specific": false,
+    "machine_profile_id": null
+  },
+  "geometry_policy": {
+    "minimum_wall_thickness_mm": 1.6,
+    "minimum_feature_size_mm": 1.0
+  },
+  "fit_policy": {
+    "default_clearance_mm": 0.25,
+    "loose_clearance_mm": 0.4,
+    "snap_fit_allowance_mm": 0.3
+  },
+  "pilot_hole_policy": {
+    "requires_calibration": true,
+    "notes": "No screw pilot-hole diameter is frozen in this starter profile. Calibrate against the actual printer, filament, orientation, fastener and desired thread engagement."
+  },
+  "calibration": {
+    "required": true,
+    "evidence_status": "unverified",
+    "notes": "These are CAD3MF starter project policies for rapid prototyping, not Bambu official specifications or universal FDM tolerances. Run a calibration coupon before production or tight mechanical fits."
+  },
+  "status": "starter_policy"
+}

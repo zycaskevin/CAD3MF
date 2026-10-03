@@ -10,6 +10,7 @@ import {
   type M1ArtifactRef,
   type M1JobManifest,
 } from "./jobs.js";
+import { downloadReferenceMeshFile, type DownloadedReferenceMesh, type ReferenceMeshFileParam } from "./mesh-file-ingest.js";
 import { createMeshProviderFromEnv } from "./mesh-provider-factory.js";
 import { MeshStore, type StoredMeshArtifact } from "./mesh-store.js";
 import type {
@@ -30,6 +31,17 @@ export interface MeshRuntimeOptions {
   meshStore?: MeshStore;
   visualStore?: VisualStore;
   provider?: MeshProvider;
+  referenceDownloader?: (input: ReferenceMeshFileParam) => Promise<DownloadedReferenceMesh>;
+}
+
+export interface ImportReferenceAssetInput {
+  projectId: string;
+  assetKind: MeshAssetKind;
+  sourceFile: ReferenceMeshFileParam;
+  sourceProvider?: string;
+  sourceModel?: string;
+  sourceModelVersion?: string | null;
+  targetDimensions?: MeshTargetDimension[];
 }
 
 export interface GenerateMeshInput {
@@ -197,6 +209,9 @@ export class MeshRuntime {
   readonly #meshStore: MeshStore;
   readonly #visualStore: VisualStore;
   readonly #provider: MeshProvider;
+  readonly #referenceDownloader: (
+    input: ReferenceMeshFileParam,
+  ) => Promise<DownloadedReferenceMesh>;
 
   constructor(options: MeshRuntimeOptions = {}) {
     this.#dataDir = resolve(options.dataDir ?? process.env.CAD3MF_DATA_DIR ?? ".cad3mf-data");
@@ -204,6 +219,7 @@ export class MeshRuntime {
     this.#meshStore = options.meshStore ?? new MeshStore(join(this.#dataDir, "mesh.sqlite"));
     this.#visualStore = options.visualStore ?? new VisualStore(join(this.#dataDir, "visual.sqlite"));
     this.#provider = options.provider ?? createMeshProviderFromEnv();
+    this.#referenceDownloader = options.referenceDownloader ?? downloadReferenceMeshFile;
   }
 
   providerInfo(): Record<string, unknown> {
@@ -213,6 +229,161 @@ export class MeshRuntime {
       model_version: this.#provider.modelVersion,
       requires_target_dimension: this.#provider.requiresTargetDimension,
     };
+  }
+
+  async importReferenceAsset(
+    input: ImportReferenceAssetInput,
+  ): Promise<Record<string, unknown>> {
+    const projectId = requireProjectId(input.projectId);
+    const now = new Date().toISOString();
+    let job = createM1Job({
+      jobId: randomUUID(),
+      traceId: randomUUID(),
+      projectId,
+      jobKind: "geometry_import",
+      stage: "geometry",
+      inputs: [],
+      toolVersions: [
+        {
+          component: "cad3mf-reference-import",
+          version: "0.2.0",
+          digest: null,
+        },
+      ],
+      now,
+    });
+    this.#meshStore.saveJob(job);
+    job = startM1Job(job, "geometry", now);
+    this.#meshStore.saveJob(job);
+
+    try {
+      const imported = await this.#referenceDownloader(input.sourceFile);
+      const meshArtifact = this.#storeMesh(
+        projectId,
+        imported.format,
+        imported.mediaType,
+        imported.bytes,
+        now,
+      );
+
+      job = {
+        ...job,
+        inputs: [
+          {
+            artifact_id: `external-${imported.sha256.slice(0, 16)}`,
+            kind: imported.format === "glb" ? "glb" : "mesh",
+            sha256: imported.sha256,
+            media_type: imported.mediaType,
+            revision_ref: null,
+          },
+        ],
+        updated_at: new Date().toISOString(),
+      };
+      this.#meshStore.saveJob(job);
+
+      const meshRevisionId = this.#meshStore.nextRevisionId(projectId, "mesh_artifact");
+      const meshDoc: Record<string, unknown> = {
+        schema_version: "0.2.0",
+        artifact_id: meshArtifact.artifactId,
+        project_id: projectId,
+        revision_id: meshRevisionId,
+        source_kind: "external_reference",
+        source_file_id: imported.fileId,
+        source_file_name: imported.fileName,
+        sha256: meshArtifact.sha256,
+        format: meshArtifact.format,
+        media_type: meshArtifact.mediaType,
+        topology_observations: {
+          watertight: null,
+          manifold: null,
+          self_intersections_detected: null,
+          notes: ["Reference import does not establish topology or printability."],
+        },
+        status: "reference_imported",
+        created_at: now,
+      };
+      this.#meshStore.addDocument(projectId, "mesh_artifact", meshRevisionId, meshDoc, now);
+
+      const targetDimensions = input.targetDimensions ?? [];
+      const targetDimension = targetDimensions[0] ?? null;
+      const assetRevisionId = this.#meshStore.nextRevisionId(projectId, "asset_ir");
+      const assetDoc: Record<string, unknown> = {
+        schema_version: "0.2.0",
+        asset_id: `asset-${projectId}`,
+        project_id: projectId,
+        revision_id: assetRevisionId,
+        parent_revision_id: null,
+        source: {
+          kind: "external_reference",
+          design_intent_revision_id: null,
+          turnaround_revision_id: null,
+          external_file_id: imported.fileId,
+        },
+        asset_type: assetType(input.assetKind),
+        units: "mm",
+        style: null,
+        pose: null,
+        target_dimensions: targetDimensions.map((dimension) => ({
+          name: dimension.name,
+          value: dimension.value,
+          unit: dimension.unit,
+        })),
+        geometry_artifact: {
+          artifact_id: meshArtifact.artifactId,
+          sha256: meshArtifact.sha256,
+          format: meshArtifact.format,
+          media_type: meshArtifact.mediaType,
+          vertex_count: null,
+          triangle_count: null,
+        },
+        regions: [],
+        print_constraints: printDefaults(input.assetKind, targetDimension),
+        provenance: {
+          generator_kind: "manual_import",
+          provider: input.sourceProvider ?? "external",
+          model: input.sourceModel ?? "unspecified",
+          model_version: input.sourceModelVersion ?? null,
+          job_id: job.job_id,
+          input_artifact_sha256: [imported.sha256],
+        },
+        status: "reference_imported",
+      };
+      this.#meshStore.addDocument(projectId, "asset_ir", assetRevisionId, assetDoc, now);
+
+      job = succeedM1Job(
+        job,
+        [
+          logicalRef(assetDoc, "asset_ir", assetRevisionId),
+          {
+            artifact_id: meshArtifact.artifactId,
+            kind: imported.format === "glb" ? "glb" : "mesh",
+            sha256: meshArtifact.sha256,
+            media_type: meshArtifact.mediaType,
+            revision_ref: assetRevisionId,
+          },
+        ],
+        new Date().toISOString(),
+      );
+      this.#meshStore.saveJob(job);
+
+      return {
+        job,
+        mesh_artifact: meshDoc,
+        asset_ir: assetDoc,
+        source: {
+          file_id: imported.fileId,
+          file_name: imported.fileName,
+          sha256: imported.sha256,
+          provider: input.sourceProvider ?? "external",
+          model: input.sourceModel ?? "unspecified",
+          model_version: input.sourceModelVersion ?? null,
+        },
+      };
+    } catch (error) {
+      job = failM1Job(job, "REFERENCE_IMPORT_FAILED", new Date().toISOString());
+      this.#meshStore.saveJob(job);
+      throw error;
+    }
   }
 
   async generateMesh(input: GenerateMeshInput): Promise<Record<string, unknown>> {
