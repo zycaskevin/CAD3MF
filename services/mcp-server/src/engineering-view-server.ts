@@ -147,12 +147,45 @@ export function registerEngineeringViewV02(
           assemblyRevision !== null &&
           assemblyValidation.source_revision_id !== assemblyRevision;
 
+        const targetDimensions = Array.isArray(asset.target_dimensions)
+          ? asset.target_dimensions
+          : [];
+        const visualTarget = targetDimensions
+          .map((value) => {
+            if (typeof value !== "object" || value === null) return null;
+            const dimension = value as Record<string, unknown>;
+            if (
+              typeof dimension.name !== "string" ||
+              typeof dimension.value !== "number" ||
+              !Number.isFinite(dimension.value) ||
+              dimension.value <= 0
+            ) {
+              return null;
+            }
+            return { name: dimension.name, value_mm: dimension.value };
+          })
+          .find((value) => value !== null);
+
         return result({
           view_kind: "engineering",
           project_id,
           asset_revision_id: asset.revision_id,
           asset_type: asset.asset_type,
-          target_dimensions: asset.target_dimensions ?? [],
+          target_dimensions: targetDimensions,
+          visual_alignment:
+            visualTarget === undefined
+              ? {
+                  mode: "none",
+                  authoritative: false,
+                  note: "No declared metric target is available; engineering overlays are not metric-aligned to the reference mesh.",
+                }
+              : {
+                  mode: "normalize_longest_extent_center_ground",
+                  target_dimension_name: visualTarget.name,
+                  target_value_mm: visualTarget.value_mm,
+                  authoritative: false,
+                  note: "Visual-only normalization: uniformly scale the reference mesh longest extent to the declared target and center/ground it. This does not modify or validate the source artifact.",
+                },
           geometry_artifact: geometry,
           viewer: {
             preview_url: artifactUrl(options.publicBaseUrl, project_id, artifactId),
