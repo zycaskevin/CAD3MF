@@ -188,7 +188,93 @@ function parseSnapshot(value: unknown): ViewerSnapshot | null {
   return parseEngineeringSnapshot(value) ?? parseParametricSnapshot(value);
 }
 
-function ModelViewport({ url }: { url: string }) {
+function envelopeVisualizable(envelope: EngineeringEnvelope): boolean {
+  const rotateX = finiteNumber(envelope.transform.rotate_x) ?? 0;
+  const rotateY = finiteNumber(envelope.transform.rotate_y) ?? 0;
+  const rotateZ = finiteNumber(envelope.transform.rotate_z) ?? 0;
+  const kind = envelope.shape.kind;
+  if (kind === "box") return rotateX === 0 && rotateY === 0 && rotateZ === 0;
+  if (kind === "cylinder") return rotateX === 0 && rotateY === 0;
+  return false;
+}
+
+function engineeringPosition(transform: Record<string, unknown>): THREE.Vector3 {
+  const x = finiteNumber(transform.x) ?? 0;
+  const y = finiteNumber(transform.y) ?? 0;
+  const z = finiteNumber(transform.z) ?? 0;
+  return new THREE.Vector3(x, z, -y);
+}
+
+function envelopeColor(role: string): number {
+  if (role === "keep_out") return 0xef4444;
+  if (role === "motion_swept") return 0xf59e0b;
+  if (role === "required_contact") return 0xa855f7;
+  return 0x3b82f6;
+}
+
+function createEnvelopeObject(envelope: EngineeringEnvelope): THREE.Group | null {
+  if (!envelopeVisualizable(envelope)) return null;
+  const clearance = Math.max(envelope.clearance_mm ?? 0, 0);
+  const group = new THREE.Group();
+  let geometry: THREE.BufferGeometry | null = null;
+
+  if (envelope.shape.kind === "box") {
+    const x = finiteNumber(envelope.shape.x);
+    const y = finiteNumber(envelope.shape.y);
+    const z = finiteNumber(envelope.shape.z);
+    if (x === null || y === null || z === null || x <= 0 || y <= 0 || z <= 0) return null;
+    geometry = new THREE.BoxGeometry(x + clearance * 2, z + clearance * 2, y + clearance * 2);
+  } else if (envelope.shape.kind === "cylinder") {
+    const diameter = finiteNumber(envelope.shape.diameter);
+    const height = finiteNumber(envelope.shape.height);
+    if (diameter === null || height === null || diameter <= 0 || height <= 0) return null;
+    geometry = new THREE.CylinderGeometry(
+      diameter / 2 + clearance,
+      diameter / 2 + clearance,
+      height + clearance * 2,
+      32,
+    );
+  }
+
+  if (!geometry) return null;
+  const color = envelopeColor(envelope.semantic_role);
+  const surface = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.17,
+      depthWrite: false,
+    }),
+  );
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }),
+  );
+  group.add(surface, edges);
+  group.position.copy(engineeringPosition(envelope.transform));
+  group.userData = { envelopeId: envelope.id };
+  return group;
+}
+
+function disposeObject(root: THREE.Object3D) {
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.LineSegments)) return;
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => material.dispose());
+  });
+}
+
+function ModelViewport({
+  url,
+  envelopes = [],
+  visualAlignment = null,
+}: {
+  url: string;
+  envelopes?: EngineeringEnvelope[];
+  visualAlignment?: Record<string, unknown> | null;
+}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -218,9 +304,16 @@ function ModelViewport({ url }: { url: string }) {
     fill.position.set(-80, 40, -60);
     scene.add(fill);
 
-    const grid = new THREE.GridHelper(160, 16);
+    const grid = new THREE.GridHelper(200, 20);
     grid.position.y = -0.01;
     scene.add(grid);
+
+    const overlayGroup = new THREE.Group();
+    for (const envelope of envelopes) {
+      const overlay = createEnvelopeObject(envelope);
+      if (overlay) overlayGroup.add(overlay);
+    }
+    scene.add(overlayGroup);
 
     let model: THREE.Object3D | null = null;
     const loader = new GLTFLoader();
@@ -228,15 +321,40 @@ function ModelViewport({ url }: { url: string }) {
       url,
       (gltf) => {
         model = gltf.scene;
+
+        if (
+          visualAlignment?.mode === "normalize_longest_extent_center_ground" &&
+          typeof visualAlignment.target_value_mm === "number" &&
+          Number.isFinite(visualAlignment.target_value_mm) &&
+          visualAlignment.target_value_mm > 0
+        ) {
+          const rawBox = new THREE.Box3().setFromObject(model);
+          const rawSize = rawBox.getSize(new THREE.Vector3());
+          const longest = Math.max(rawSize.x, rawSize.y, rawSize.z);
+          if (longest > 0) {
+            model.scale.multiplyScalar(visualAlignment.target_value_mm / longest);
+            model.updateMatrixWorld(true);
+            const scaledBox = new THREE.Box3().setFromObject(model);
+            const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+            model.position.x -= scaledCenter.x;
+            model.position.y -= scaledBox.min.y;
+            model.position.z -= scaledCenter.z;
+            model.updateMatrixWorld(true);
+          }
+        }
+
         scene.add(model);
         const box = new THREE.Box3().setFromObject(model);
+        if (overlayGroup.children.length > 0) box.expandByObject(overlayGroup);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const radius = Math.max(size.length() * 0.5, 1);
         controls.target.copy(center);
         camera.near = Math.max(radius / 200, 0.01);
         camera.far = Math.max(radius * 100, 1000);
-        camera.position.copy(center).add(new THREE.Vector3(radius * 1.5, radius * 1.2, radius * 1.5));
+        camera.position
+          .copy(center)
+          .add(new THREE.Vector3(radius * 1.5, radius * 1.2, radius * 1.5));
         camera.updateProjectionMatrix();
         controls.update();
       },
@@ -267,18 +385,12 @@ function ModelViewport({ url }: { url: string }) {
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
-      if (model) {
-        model.traverse((child) => {
-          if (!(child instanceof THREE.Mesh)) return;
-          child.geometry.dispose();
-          const materials = Array.isArray(child.material) ? child.material : [child.material];
-          materials.forEach((material) => material.dispose());
-        });
-      }
+      if (model) disposeObject(model);
+      disposeObject(overlayGroup);
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [url]);
+  }, [url, envelopes, visualAlignment]);
 
   return (
     <div className="viewport" ref={mountRef}>
