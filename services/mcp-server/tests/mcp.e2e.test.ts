@@ -133,6 +133,7 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
         "list_manufacturing_profiles",
         "modify_design",
         "render_design",
+        "render_engineering_view",
         "resolve_fit_policy",
         "validate_assembly",
         "validate_design",
