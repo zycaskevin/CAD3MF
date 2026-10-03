@@ -114,20 +114,27 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
         "analyze_visual_input",
         "confirm_design",
         "create_design",
+        "define_assembly",
         "define_engineering_envelopes",
         "export_design",
         "generate_concept",
         "generate_mesh",
         "generate_turnaround",
+        "get_assembly",
+        "get_assembly_validation",
         "get_engineering_envelopes",
         "get_engineering_report",
+        "get_manufacturing_profile",
         "get_mesh_asset",
         "get_mesh_job",
         "get_visual_job",
         "import_reference_asset",
         "inspect_design",
+        "list_manufacturing_profiles",
         "modify_design",
         "render_design",
+        "resolve_fit_policy",
+        "validate_assembly",
         "validate_design",
         "validate_engineering_envelopes",
       ],
@@ -192,6 +199,22 @@ test("M0 MCP golden path persists revisions across server restarts", async () =>
       resources.some(
         (resource) =>
           resource.uri === "caddesk://schema/engineering-interference-report/0.1.0",
+      ),
+      true,
+    );
+    assert.equal(
+      resources.some((resource) => resource.uri === "caddesk://schema/assembly-ir/0.1.0"),
+      true,
+    );
+    assert.equal(
+      resources.some(
+        (resource) => resource.uri === "caddesk://schema/assembly-validation-report/0.1.0",
+      ),
+      true,
+    );
+    assert.equal(
+      resources.some(
+        (resource) => resource.uri === "caddesk://schema/manufacturing-profile/0.1.0",
       ),
       true,
     );
