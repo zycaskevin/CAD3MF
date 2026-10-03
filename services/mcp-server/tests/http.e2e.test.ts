@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+
+import { AssemblyRuntime } from "../src/assembly-runtime.js";
+import { EngineeringRuntime } from "../src/engineering-runtime.js";
+import { MeshStore } from "../src/mesh-store.js";
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const SERVICE_DIR = resolve(TEST_DIR, "..");
@@ -86,6 +91,144 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD/visual artifacts", as
   const dataDir = await mkdtemp(resolve(tmpdir(), "cad3mf-http-"));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
+
+  const engineeringProjectId = "http-engineering-tank";
+  const engineeringArtifactId = "mesh-http-engineering";
+  const engineeringArtifactDir = join(
+    dataDir,
+    "mesh-artifacts",
+    engineeringProjectId,
+  );
+  await mkdir(engineeringArtifactDir, { recursive: true });
+  const engineeringArtifactPath = join(
+    engineeringArtifactDir,
+    `${engineeringArtifactId}.glb`,
+  );
+  const engineeringGlb = Buffer.alloc(12);
+  engineeringGlb.write("glTF", 0, "ascii");
+  engineeringGlb.writeUInt32LE(2, 4);
+  engineeringGlb.writeUInt32LE(12, 8);
+  await writeFile(engineeringArtifactPath, engineeringGlb);
+  const engineeringSha = createHash("sha256").update(engineeringGlb).digest("hex");
+  const createdAt = "2026-10-03T16:30:00Z";
+
+  const meshStore = new MeshStore(join(dataDir, "mesh.sqlite"));
+  meshStore.saveArtifact({
+    projectId: engineeringProjectId,
+    artifactId: engineeringArtifactId,
+    path: engineeringArtifactPath,
+    sha256: engineeringSha,
+    format: "glb",
+    mediaType: "model/gltf-binary",
+    createdAt,
+  });
+  meshStore.addDocument(
+    engineeringProjectId,
+    "asset_ir",
+    "asset-r1",
+    {
+      schema_version: "0.2.0",
+      asset_id: "asset-http-engineering-tank",
+      project_id: engineeringProjectId,
+      revision_id: "asset-r1",
+      parent_revision_id: null,
+      source: {
+        kind: "external_reference",
+        design_intent_revision_id: null,
+        turnaround_revision_id: null,
+        external_file_id: "fixture-http-engineering",
+      },
+      asset_type: "vehicle_shell",
+      units: "mm",
+      style: null,
+      pose: null,
+      target_dimensions: [{ name: "target_length", value: 160, unit: "mm" }],
+      geometry_artifact: {
+        artifact_id: engineeringArtifactId,
+        sha256: engineeringSha,
+        format: "glb",
+        media_type: "model/gltf-binary",
+        vertex_count: null,
+        triangle_count: null,
+      },
+      regions: [],
+      print_constraints: {
+        minimum_wall_thickness_mm: 1.6,
+        minimum_feature_size_mm: 1,
+        base_required: false,
+        target_height_mm: null,
+        maximum_overhang_deg: null,
+      },
+      provenance: {
+        generator_kind: "manual_import",
+        provider: "fixture",
+        model: "fixture",
+        model_version: null,
+        job_id: "fixture-job",
+        input_artifact_sha256: [engineeringSha],
+      },
+      status: "reference_imported",
+    },
+    createdAt,
+  );
+
+  const engineeringRuntime = new EngineeringRuntime({ dataDir });
+  engineeringRuntime.defineEnvelopeSet({
+    projectId: engineeringProjectId,
+    sourceAssetRevisionId: "asset-r1",
+    coordinateFrame: { name: "tank-chassis", originPolicy: "chassis_origin" },
+    envelopes: [
+      {
+        id: "battery-clearance",
+        semanticRole: "keep_out",
+        componentRole: "battery",
+        shape: { kind: "box", x: 60, y: 30, z: 18 },
+        transform: { x: -50, y: 0, z: 12, rotateX: 0, rotateY: 0, rotateZ: 0 },
+      },
+      {
+        id: "pcb",
+        semanticRole: "occupied",
+        componentRole: "pcb",
+        shape: { kind: "box", x: 45, y: 25, z: 4 },
+        transform: { x: 50, y: 0, z: 16, rotateX: 0, rotateY: 0, rotateZ: 0 },
+      },
+    ],
+  });
+  engineeringRuntime.validateEnvelopeSet(engineeringProjectId);
+
+  const assemblyRuntime = new AssemblyRuntime({ dataDir });
+  assemblyRuntime.defineAssembly({
+    projectId: engineeringProjectId,
+    productType: "modular_tank",
+    parts: [
+      {
+        id: "chassis",
+        sourceKind: "cad_ir",
+        sourceRef: "cad:r1",
+        role: "structural",
+        transform: { x: 0, y: 0, z: 0, rotateX: 0, rotateY: 0, rotateZ: 0 },
+      },
+      {
+        id: "shell",
+        sourceKind: "asset_ir",
+        sourceRef: "asset-r1",
+        sourceArtifactSha256: engineeringSha,
+        role: "shell",
+        transform: { x: 0, y: 0, z: 0, rotateX: 0, rotateY: 0, rotateZ: 0 },
+      },
+    ],
+    interfaces: [
+      {
+        id: "shell-mount",
+        type: "screw",
+        partA: "chassis",
+        partB: "shell",
+        spec: { screwStandard: "M2" },
+      },
+    ],
+  });
+  assemblyRuntime.validateAssembly(engineeringProjectId);
+
   const child = spawn(process.execPath, ["--import", "tsx", "src/http.ts"], {
     cwd: SERVICE_DIR,
     env: childEnv(dataDir, port, baseUrl),
@@ -187,6 +330,51 @@ test("HTTP MCP serves the ChatGPT viewer and immutable CAD/visual artifacts", as
     assert.match(threeMf.headers.get("content-type") ?? "", /^model\/3mf/);
     const threeMfBytes = new Uint8Array(await threeMf.arrayBuffer());
     assert.equal(new TextDecoder().decode(threeMfBytes.slice(0, 2)), "PK");
+
+    const engineeringView = structured(
+      await client.callTool({
+        name: "render_engineering_view",
+        arguments: { project_id: engineeringProjectId },
+      }),
+    );
+    assert.equal(engineeringView.view_kind, "engineering");
+    assert.equal(engineeringView.asset_revision_id, "asset-r1");
+    const engineeringViewer = engineeringView.viewer as Record<string, unknown>;
+    assert.equal(
+      engineeringViewer.preview_url,
+      `${baseUrl}/mesh-artifacts/${engineeringProjectId}/${engineeringArtifactId}`,
+    );
+    const engineeringInterference = engineeringView.interference_report as Record<
+      string,
+      unknown
+    >;
+    assert.equal(engineeringInterference.status, "pass");
+    assert.equal(engineeringView.interference_report_stale, false);
+    const engineeringAssembly = engineeringView.assembly_validation as Record<
+      string,
+      unknown
+    >;
+    assert.equal(engineeringAssembly.status, "pass");
+    assert.equal(engineeringView.assembly_validation_stale, false);
+    const visualAlignment = engineeringView.visual_alignment as Record<string, unknown>;
+    assert.equal(visualAlignment.mode, "normalize_longest_extent_center_ground");
+    assert.equal(visualAlignment.target_value_mm, 160);
+    assert.equal(visualAlignment.authoritative, false);
+
+    const meshResponse = await fetch(String(engineeringViewer.preview_url), {
+      headers: { origin: "null" },
+    });
+    assert.equal(meshResponse.status, 200);
+    assert.equal(meshResponse.headers.get("access-control-allow-origin"), "*");
+    assert.match(meshResponse.headers.get("content-type") ?? "", /^model\/gltf-binary/);
+    const meshBytes = new Uint8Array(await meshResponse.arrayBuffer());
+    assert.equal(createHash("sha256").update(meshBytes).digest("hex"), engineeringSha);
+
+    const rejectedMeshHost = await requestStatus(String(engineeringViewer.preview_url), {
+      host: "attacker.invalid",
+      origin: "null",
+    });
+    assert.equal(rejectedMeshHost, 403);
 
     const sourceSha = "d".repeat(64);
     const analyzed = structured(
